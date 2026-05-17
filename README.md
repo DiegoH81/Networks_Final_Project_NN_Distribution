@@ -11,7 +11,8 @@ Students:
 
 ## Protocol
 
-The protocol will have three different types of messages, each one with a size of 500 bytes:
+Each protocol message will have a size of 500 bytes, and the hashing that we will use is SHA-256.
+The protocol will have three different types of messages:
 
 ## Data Packet (D)
 
