@@ -78,7 +78,7 @@ The following sources were considered as references for typical RTT behavior in 
 
 Based on these references, the following initial value was adopted:
 
-$$SampleRTT_0 = 2 \ ms$$
+$$\text{SampleRTT}_0 = 2 \ ms$$
 
 
 
@@ -86,17 +86,17 @@ $$SampleRTT_0 = 2 \ ms$$
 
 Using the bibliographic reference RTT, the following initial values were defined:
 
-$$EstimatedRTT_0 = 2 \ ms$$
-$$DevRTT_0 = 1 \ ms$$
+$$\text{EstimatedRTT}_0 = 2 \ ms$$
+$$\text{DevRTT}_0 = 1 \ ms$$
 
 Applying the TCP formulas:
 
-$$TimeoutInterval = EstimatedRTT + 4 \cdot DevRTT$$
-$$TimeoutInterval = 2 + 4(1) = 6 \ ms$$
+$$\text{TimeoutInterval} = \text{EstimatedRTT} + 4 \cdot \text{DevRTT}$$
+$$\text{TimeoutInterval} = 2 + 4(1) = 6 \ ms$$
 
 Then:
 
-$$TimeoutInterval = 6 \ ms$$
+$$\text{TimeoutInterval} = 6 \ ms$$
 
 
 
@@ -104,10 +104,10 @@ $$TimeoutInterval = 6 \ ms$$
 
 Although the formula produces a theoretical timeout of 6 ms, this value is too aggressive for a system without real RTT measurements.
 
-RFC 6298 recommends using: $RTO = 1000 \ ms$
+RFC 6298 recommends using: $\text{RTO} = 1000 \ ms$
 
 Using 1000 ms in this project would delay packet loss detection and retransmissions during distributed training, so we adjusted it to fit a LAN environment, Considering a typical LAN RTT of approximately 2 ms, and a safe margin of 100x then:
 
-$$Initial\ Timeout = 100 \times 2 \ ms = 200 \ ms$$
+$$\text{Initial\ Timeout} = 100 \times 2 \ ms = 200 \ ms$$
 
 Once the system starts operating the 200 ms timeout value will change to its final value thanks to the formula presented before.
