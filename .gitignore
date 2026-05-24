@@ -1,0 +1,13 @@
+*
+!*/
+
+!.gitignore
+
+!*.cpp
+!*.c
+!*.h
+!*.hpp
+!*.py
+!*.txt
+!*.csv
+!*.md
