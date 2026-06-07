@@ -12,8 +12,11 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classifica
 import numpy as np
 
 import pandas as pd
+import os 
 
 import torch.distributions as dist
+
+import udp_module
 
 X=None
 y=None
@@ -49,7 +52,12 @@ batch_size = 100
 
 
 # Load dataset from CSV
-csv_path = "Dataset of Diabetes.csv"  # replace with your actual CSV file path   1000,13,3,50
+# csv_path = "..//data//Dataset of Diabetes.csv"  # replace with your actual CSV file path   1000,13,3,50
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(current_dir, "..", "data", "Dataset of Diabetes.csv")
+
+print("Path: ", csv_path)
 
 df = pd.read_csv(csv_path,header=None, skiprows=1)
 
@@ -91,16 +99,28 @@ train_tracker, test_tracker, accuracy_tracker = [], [], []
 
 model.train()
 epoch_loss = 0
+counter = 0
+
+# CPP
+puerto = 45000
+server = udp_module.UdpServer(puerto)
+
+server.receieve_hello()
+
+
 for batch_x, batch_y in train_loader:
     optimizer.zero_grad()
 
-
-    # load matrix froma Master C starting from second time
-    # new_matrix_1, new_matrix_2, new_matrix_3, new_matrix_4 = proto_get_matrix()
-    # model.fc1.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_1)))
-    # model.fc2.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_2)))
-    # model.fc3.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_3)))
-    # model.fc4.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_4)))
+    if (counter > 0):
+        full_msg = server.receive_full_msg()
+        print("FULL MSG:", full_msg)
+        # load matrix froma Master C starting from second time
+        # new_matrix_1, new_matrix_2, new_matrix_3, new_matrix_4 = proto_get_matrix()
+        
+        # model.fc1.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_1)))
+        # model.fc2.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_2)))
+        # model.fc3.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_3)))
+        # model.fc4.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_4)))
 
     logits, log_vars = model(batch_x)
     loss = criterion(logits, batch_y)
@@ -108,18 +128,31 @@ for batch_x, batch_y in train_loader:
     optimizer.step()
 
     # get the matrix and distribute it to the clients
-    # to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
-    # to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
-    # to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
-    # to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
+    to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
+    to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
+    to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
+    to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
 
+
+
+    print("to_send_1", to_send_1.shape)
+    print("to_send_2", to_send_2.shape)
+    print("to_send_3", to_send_3.shape)
+    print("to_send_4", to_send_4.shape)
+    
+    server.send_msg("test")
+    
     # proto.send_matrix(to_send_1)
     # proto.send_matrix(to_send_2)
     # proto.send_matrix(to_send_3)
     # proto.send_matrix(to_send_4)
 
     epoch_loss += loss.item()
+    counter += 1
 train_tracker.append(epoch_loss / len(train_loader))
+
+'''
+
 
 # Evaluation on test set
 y_true = []
@@ -185,3 +218,4 @@ plt.show()
 # Print classification metrics
 print("\nClassification Report:")
 print(classification_report(y_true, y_pred, digits=3))
+'''
