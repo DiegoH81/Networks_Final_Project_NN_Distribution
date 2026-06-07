@@ -7,6 +7,9 @@ import torch.optim as optim
 import numpy as np
 import pandas as pd
 
+import udp_module
+
+
 X = None
 y = None
 
@@ -41,7 +44,7 @@ num_classes = 3
 
 
 ####  Get Data as string from protocol
-data = np.array([1,2,3,4,5,6,7,8,9,10,11,12,13,14])
+data = np.array([[1,2,3,4,5,6,7,8,9,10,11,12,13,14]])
 
 # Assume first 4 columns are input features, last 3 are one-hot class labels
 X_np = data[:, : input_dim]
@@ -68,8 +71,12 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 
 # Load Model Data
+dest_ip = "127.0.0.1"
+port = 45000
+client = udp_module.UdpClient(dest_ip, port)
 
-
+# Hello msg
+client.send_msg("HELLO")
 
 # Training
 while(True):
@@ -80,25 +87,29 @@ while(True):
     ####### Get  matrix
     ####### Load Matrix from MasterC to Master P
 
+    last_msg = client.receive_latest_msg()
+    print("Last msg:", last_msg)
+    
     # new_matrix_1, new_matrix_2, new_matrix_3, new_matrix_4 = proto_get_matrix()
     # model.fc1.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_1)))
     # model.fc2.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_2)))
     # model.fc3.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_3)))
     # model.fc4.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_4)))
 
-    logits, log_vars = model(X)
-    loss = criterion(logits, y)
-    loss.backward()
-    optimizer.step()
+    #logits, log_vars = model(X)
+    #loss = criterion(logits, y)
+    #loss.backward()
+    #optimizer.step()
 
     ####### Extract matrix from NN
     ####### Send matrix to master P
 
-    # to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
-    # to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
-    # to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
-    # to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
+    to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
+    to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
+    to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
+    to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
 
+    client.send_msg("SENDING")
     # proto.send_matrix(to_send_1)
     # proto.send_matrix(to_send_2)
     # proto.send_matrix(to_send_3)
