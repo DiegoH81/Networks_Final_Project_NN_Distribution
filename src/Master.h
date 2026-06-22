@@ -1,3 +1,6 @@
+#ifndef MASTER_H
+#define MASTER_H
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -13,41 +16,11 @@
 #include <sstream>
 #include <stdexcept>
 
-//==================================================
-//               Project Constants
-//==================================================
 
-#define PACKET_LENGTH 500
-
-#define HASH_LENGTH 10
-#define CTRL_FRAG_LENGTH 2
-#define SEQ_NUM_FRAG_LENGTH 4
-#define SEQ_NUM_MSG_LENGTH 4
-#define TYPE_LENGTH 1
-#define DATA_SIZE_LENGTH 10
-
-#define BATCH_ID_LENGTH 5
-#define LAYER_ID_LENGTH 3
-#define ROWS_LENGTH 6
-#define COLUMNS_LENGTH 4
-
-#define TIMEOUT_MS 500
-#define MAX_RETRIES 5
-
-#define NUM_SLAVES 3
-#define NUM_LAYERS 4
-
-//==================================================
-//                Protocol Lengths
-//==================================================
-
-#define HEADER_LENGTH (HASH_LENGTH + CTRL_FRAG_LENGTH + SEQ_NUM_FRAG_LENGTH + SEQ_NUM_MSG_LENGTH)
-
-#define PAYLOAD_LENGTH (PACKET_LENGTH - HEADER_LENGTH)
-
-#define FIRST_PAYLOAD_DATA_SIZE (PAYLOAD_LENGTH - TYPE_LENGTH - DATA_SIZE_LENGTH)
-#define NORMAL_PAYLOAD_DATA_SIZE PAYLOAD_LENGTH
-#define ACK_NACK_PADDING_SIZE (PAYLOAD_LENGTH - TYPE_LENGTH)
+#include "function_utils.h"
+#include "UDP_utils.h"
+#include "CSV_temp.h"
+#include "matrix_temp.h"
 
 //==================================================
 //               Project Structs
@@ -80,577 +53,10 @@ struct Weights_Result{
 
 };
 
-//==================================================
-//               Auxiliary Functions
-//==================================================
-
-std::string Int_to_String(unsigned long long Integer_Number, int Size){
-
-    std::string Number_String = std::to_string(Integer_Number);   
-
-    if (Number_String.length() > Size) {
-
-        std::cout << "[ERROR]: Number exceeds field length.\n";
-        return "";
-
-    }
-
-    while(Number_String.length() < Size){
-
-        Number_String = "0" + Number_String;
-
-    }
-
-    return Number_String;
-
-}
-
-std::string Float_to_String(float Decimal_Number){
-
-    std::string Float_String = std::to_string(Decimal_Number);
-
-    while(!Float_String.empty() && Float_String.back() == '0'){
-
-        Float_String.pop_back();
-
-    }
-
-    if(!Float_String.empty() && Float_String.back() == '.'){
-
-        Float_String.pop_back();
-
-    }
-
-    return Float_String;
-
-}
-
-std::string Add_Payload_Padding(std::string Payload, char Char_Padding = '#'){
-
-    if(Payload.length() > PAYLOAD_LENGTH){
-
-        std::cout << "[ERROR]: The Packet Content exceeds payload length.\n";
-        return "";
-
-    }
-
-    while(Payload.length() < PAYLOAD_LENGTH){
-
-        Payload += Char_Padding;
-
-    }
-
-    return Payload;
-
-}
-
-std::string Remove_Padding(std::string Packet_Content, char Char_Padding = '#'){
-
-    while(!Packet_Content.empty() && Packet_Content.back() == Char_Padding){
-
-        Packet_Content.pop_back();
-
-    }
-
-    return Packet_Content;
-
-}
-
-char Get_Padding_Char(std::string Control_Frag, int Seq_Num_Frag){
-
-    if(Control_Frag == "11" && Seq_Num_Frag == 0){
-
-        return '@';
-
-    }
-
-    return '#';
-
-}
-
-std::string Address_To_String(sockaddr_in Address){
-
-    std::string IP_Address = inet_ntoa(Address.sin_addr);
-    int Port = ntohs(Address.sin_port);
-
-    return IP_Address + ":" + std::to_string(Port);
-
-}
-
-//==================================================
-//                 Hash Function
-//==================================================
-
-unsigned int Calculate_CRC32(std::string Payload){
-
-    unsigned int CRC32_Value = 0xFFFFFFFF;
-
-    for(unsigned char Current_Byte : Payload){
-
-        CRC32_Value = CRC32_Value ^ Current_Byte;
-
-        for(int Bit_Index = 0; Bit_Index < 8; Bit_Index++){
-
-            if(CRC32_Value & 1){ 
-
-                CRC32_Value = (CRC32_Value >> 1)^0xEDB88320; 
-
-            }
-
-            else{
-
-                CRC32_Value = CRC32_Value >> 1;
-
-            }
-
-        }
-
-    }
-
-    return CRC32_Value ^ 0xFFFFFFFF;
-
-}
-
-bool Verify_Packet_Hash(std::string Packet_Content){
-
-    if(Packet_Content.length() != PACKET_LENGTH){
-
-        std::cout << "[ERROR]: Invalid packet length.\n";
-        return false;
-
-    }
-
-    std::string Received_Hash = Packet_Content.substr(0,HASH_LENGTH);
-    std::string Payload = Packet_Content.substr(HEADER_LENGTH, PAYLOAD_LENGTH);
-
-    unsigned int Hash = Calculate_CRC32(Payload);
-    std::string Calculated_Hash = Int_to_String(Hash, HASH_LENGTH);
-
-    return Received_Hash == Calculated_Hash;
-
-}
-
-//==================================================
-//              Packet Construction
-//==================================================
-
-std::string Build_Header(std::string Hash_CRC32, std::string Control_Frag, int Seq_Num_Frag, int Seq_Num_Msg){
-
-    std::string Header_Content = "";
-
-    Header_Content += Hash_CRC32;
-    Header_Content += Control_Frag;
-    Header_Content += Int_to_String(Seq_Num_Frag, SEQ_NUM_FRAG_LENGTH);
-    Header_Content += Int_to_String(Seq_Num_Msg, SEQ_NUM_MSG_LENGTH);
-
-    return Header_Content;
-
-}
-
-std::string Build_Packet(std::string Control_Frag, int Seq_Num_Frag, int Seq_Num_Msg, std::string Payload){
-
-    if (Payload.length() > PAYLOAD_LENGTH){
-
-        std::cout << "[ERROR]: Payload exceeds payload length.\n";
-        return "";
-
-    }
-
-    std::string Packet_Content = "";
-
-    char Char_Padding = Get_Padding_Char(Control_Frag, Seq_Num_Frag);
-    Payload = Add_Payload_Padding(Payload, Char_Padding);
-
-    unsigned int Hash = Calculate_CRC32(Payload);
-    std::string Hash_CRC32 = Int_to_String(Hash, HASH_LENGTH);
-
-    std::string Header = Build_Header(Hash_CRC32, Control_Frag, Seq_Num_Frag, Seq_Num_Msg);
-
-    Packet_Content += Header;
-    Packet_Content += Payload;
-
-    if(Packet_Content.length() != PACKET_LENGTH){
-
-        std::cout << "[ERROR]: Final build packet length is invalid.\n";
-        return "";
-
-    }
-
-    return Packet_Content;
-
-}
-
-//==================================================
-//              Fragmentation Logic
-//==================================================
-
-std::vector<std::string> Fragment_Message(char Message_Type, int Seq_Num_Msg, std::string Full_Data){
-
-    std::vector<std::string> Fragment_List;
-
-    size_t Total_Data_Size = Full_Data.length();
-
-    std::string Data_Size_String = Int_to_String(Total_Data_Size, DATA_SIZE_LENGTH);
-
-    if(Full_Data.length() <= FIRST_PAYLOAD_DATA_SIZE){
-
-        std::string Payload = "";
-
-        Payload += Message_Type;
-        Payload += Data_Size_String;
-        Payload += Full_Data;
-
-        std::string Packet = Build_Packet("11", 0, Seq_Num_Msg, Payload);
-
-        Fragment_List.push_back(Packet);
-
-        return Fragment_List;
-
-    }
-
-    std::string First_Data = Full_Data.substr(0, FIRST_PAYLOAD_DATA_SIZE);
-
-    std::string First_Payload = "";
-
-    First_Payload += Message_Type;
-    First_Payload += Data_Size_String;
-    First_Payload += First_Data;
-
-    std::string First_Packet = Build_Packet("01", 0, Seq_Num_Msg, First_Payload);
-
-    Fragment_List.push_back(First_Packet);
-
-    size_t Current_Position = FIRST_PAYLOAD_DATA_SIZE;
-    int Current_Frag_Num = 1;
-
-    while(Current_Position < Total_Data_Size){
-
-        size_t Remaining_Data = Total_Data_Size - Current_Position;
-        size_t Current_Data_Size = std::min(Remaining_Data, (size_t)NORMAL_PAYLOAD_DATA_SIZE);
-
-        std::string Data_Fragment = Full_Data.substr(Current_Position, Current_Data_Size);
-
-        Current_Position += Current_Data_Size;
-
-        std::string Control_Frag = "";
-
-        if(Current_Position >= Total_Data_Size){ Control_Frag = "11"; }
-        else { Control_Frag = "00"; }
-
-        std::string Packet = Build_Packet(Control_Frag, Current_Frag_Num, Seq_Num_Msg, Data_Fragment);
-
-        Fragment_List.push_back(Packet);
-
-        Current_Frag_Num++;
-
-    }
-
-    return Fragment_List;
-
-}
-
-//==================================================
-//              Reassembly Logic
-//==================================================
-
-std::string Reassemble_Message(std::vector<std::string> Fragment_List){
-
-    std::string Full_Data = "";
-
-    unsigned long long Expected_Data_Size = 0;
-    char Message_Type = '\0';
-
-    for(size_t i = 0; i < Fragment_List.size(); i++){
-
-        std::string Packet = Fragment_List[i];
-
-        if(!Verify_Packet_Hash(Packet)){
-
-            std::cout << "[ERROR]: Invalid hash in fragment " << i << ".\n";
-            return "";
-
-        }
-
-        std::string Control_Frag = Packet.substr(HASH_LENGTH, CTRL_FRAG_LENGTH);
-        std::string Seq_Frag_String = Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH, SEQ_NUM_FRAG_LENGTH);
-
-        int Seq_Frag = std::stoi(Seq_Frag_String);
-
-        std::string Payload = Packet.substr(HEADER_LENGTH, PAYLOAD_LENGTH);
-
-        if(i == 0){
-
-            Message_Type = Payload[0];
-
-            std::string Data_Size_String = Payload.substr(TYPE_LENGTH, DATA_SIZE_LENGTH);
-
-            Expected_Data_Size = std::stoull(Data_Size_String);
-
-            std::string First_Data = Payload.substr(TYPE_LENGTH + DATA_SIZE_LENGTH);
-
-            Full_Data += First_Data;
-        }
-        else{
-
-            if(Control_Frag == "11"){
-
-                char Char_Padding = Get_Padding_Char(Control_Frag, Seq_Frag);
-
-                std::string Clean_Payload = Remove_Padding(Payload, Char_Padding);
-                Full_Data += Clean_Payload;
-
-            }
-
-            else{
-
-                Full_Data += Payload;
-
-            }
-            
-        }
-
-    }
-
-    if(Full_Data.length() > Expected_Data_Size){
-
-        Full_Data = Full_Data.substr(0, Expected_Data_Size);
-
-    }
-
-    if(Full_Data.length() != Expected_Data_Size){
-
-        std::cout << "[ERROR]: Reassembled data size is invalid.\n";
-        std::cout << "Expected: " << Expected_Data_Size << "\n";
-        std::cout << "Received: " << Full_Data.length() << "\n";
-        return "";
-
-    }
-
-    return Full_Data;
-
-}
-
-//==================================================
-//              ACK / NACK Logic
-//==================================================
-
-std::string Build_ACK_NACK_Packet(int Seq_Num_Frag, int Seq_Num_Msg, char ACK_Type){
-
-    std::string Payload = "";
-
-    Payload += ACK_Type;
-
-    std::string Packet = Build_Packet("11", Seq_Num_Frag, Seq_Num_Msg, Payload);
-
-    return Packet;
-
-}
-
-//==================================================
-//              UDP Socket Functions
-//==================================================
-
-int Create_UDP_Socket(){
-
-    int Socket_Master = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if(Socket_Master < 0){
-
-        std::cout << "[ERROR]: Could not create UDP Socket.\n";
-        return -1; 
-
-    }
-
-    return Socket_Master;
-
-}
-
-bool Bind_UDP_Socket(int Socket_Master, int Port){
-
-    sockaddr_in Local_Address;
-    std::memset(&Local_Address, 0, sizeof(Local_Address));
-
-    Local_Address.sin_family = AF_INET;
-    Local_Address.sin_port = htons(Port);
-    Local_Address.sin_addr.s_addr = INADDR_ANY;
-
-    int Bind_Result = bind(Socket_Master, (sockaddr*)&Local_Address, sizeof(Local_Address));
-
-    if(Bind_Result < 0){
-
-        std::cout << "[ERROR]: Could not bind UDP socket.\n";
-        return false;
-
-    }
-
-    return true;
-
-}
-
-sockaddr_in Create_Address(std::string IP_Address, int Port){
-
-    sockaddr_in Address;
-    std::memset(&Address, 0, sizeof(Address));
-
-    Address.sin_family = AF_INET;
-    Address.sin_port = htons(Port);
-    Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
-
-    return Address;
-
-}
-
-bool Send_UDP_Packet(int Socket_Master, std::string Packet, sockaddr_in Destination_Address){
-
-    if(Packet.length() != PACKET_LENGTH){
-
-        std::cout << "[ERROR]: Cannot send packet with invalid length.\n";
-        return false;
-
-    }
-
-    int Bytes_Sent = sendto(Socket_Master, Packet.c_str(), PACKET_LENGTH, 0, (sockaddr*)&Destination_Address, sizeof(Destination_Address));
-
-    if(Bytes_Sent != PACKET_LENGTH){
-
-        std::cout << "[ERROR]: Could not send complete UDP Packet.\n";
-        return false;
-
-    }
-
-    return true;
-
-}
-
-std::string Receive_UDP_Packet(int Socket_Master, sockaddr_in& Sender_Address){
-
-    char Buffer[PACKET_LENGTH];
-
-    socklen_t Sender_Length = sizeof(Sender_Address);
-
-    int Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, 0, (sockaddr*)&Sender_Address, &Sender_Length);
-
-    if(Bytes_Received <= 0){
-
-        return "";
-
-    }
-
-    if(Bytes_Received != PACKET_LENGTH){
-
-        std::cout << "[ERROR]: Incomplete UDP Packet received.\n";
-        return "";
-
-    }
-
-    std::string Packet(Buffer, Bytes_Received);
-
-    return Packet;
-
-}
-
-bool Set_Socket_Timeout(int Socket_Master, int Timeout_Miliseconds){
-
-    timeval Timeout_Value;
-
-    Timeout_Value.tv_sec = Timeout_Miliseconds / 1000;
-    Timeout_Value.tv_usec = (Timeout_Miliseconds % 1000) * 1000;
-
-    int Result = setsockopt(Socket_Master, SOL_SOCKET, SO_RCVTIMEO, &Timeout_Value, sizeof(Timeout_Value));
-
-    if(Result < 0){
-
-        std::cout << "[ERROR]: Could not set socket timeout.\n";
-        return false;
-
-    }
-
-    return true;
-
-}
 
 //==================================================
 //                  Master Logic
 //==================================================
-
-bool Send_Packet_With_ACK(int Socket_Master, std::string Packet, sockaddr_in Destination_Address){
-
-    std::string Seq_Frag = Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH, SEQ_NUM_FRAG_LENGTH);
-    std::string Seq_Msg = Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH + SEQ_NUM_FRAG_LENGTH, SEQ_NUM_MSG_LENGTH);
-
-
-    int Retry_Count = 0;
-
-    while(Retry_Count < MAX_RETRIES){
-
-        bool Send_Result = Send_UDP_Packet(Socket_Master, Packet, Destination_Address);
-
-        if(!Send_Result){
-
-            std::cout << "[ERROR]: Packet send failed. Retry : " << Retry_Count << " .\n";
-            Retry_Count++;
-            continue; 
-
-        }
-
-        sockaddr_in Sender_Address;
-        std::string Response_Packet = Receive_UDP_Packet(Socket_Master, Sender_Address);
-
-        if(Response_Packet == ""){
-
-            std::cout << "[TIMEOUT]: No ACK/NACK received. Retrying...\n";
-            Retry_Count++;
-            continue;
-
-        }
-
-        if(!Verify_Packet_Hash(Response_Packet)){
-
-            std::cout << "[ERROR]: ACK/NACK hash invalid. Retrying...\n";
-            Retry_Count++;
-            continue;
-
-        }
-
-        std::string Response_Seq_Frag = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH, SEQ_NUM_FRAG_LENGTH);
-        std::string Response_Seq_Msg = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH + SEQ_NUM_FRAG_LENGTH, SEQ_NUM_MSG_LENGTH);
-        std::string Response_Payload = Response_Packet.substr(HEADER_LENGTH, PAYLOAD_LENGTH);
-
-        char Response_Type = Response_Payload[0];
-
-        if(Response_Seq_Frag != Seq_Frag || Response_Seq_Msg != Seq_Msg){
-
-            std::cout << "[WARNING]: ACK/NACK does not match current packet. Retrying...\n";
-            Retry_Count++;
-            continue;
-
-        } 
-
-        if(Response_Type == 'A'){
-
-            std::cout << "[OK]: ACK received for fragment " << Seq_Frag << ".\n";
-            return true;
-
-        }
-
-        if(Response_Type == 'N'){
-
-            std::cout << "[NACK]: Fragment " << Seq_Frag << " rejected. Retrying...\n";
-            Retry_Count++;
-            continue;
-
-        }
-
-
-        std::cout << "[ERROR]: Unknown ACK/NACK type. Retrying...\n";
-        Retry_Count++;
-
-    }
-
-    std::cout << "[ERROR]: Max retries reached for fragment " << Seq_Frag << ".\n";
-    return false;
-
-}
 
 std::vector<Slave_Info> Register_Slaves(int Master_Socket, int Expected_Slaves){
 
@@ -790,194 +196,6 @@ void Send_Message_To_Slave_Thread(Slave_Info Current_Slave, char Message_Type, i
 
 }
 
-//==================================================
-//               Parsers and Dividers
-//==================================================
-
-std::string Matrix_To_String(std::vector<std::vector<double>> Matrix){
-
-    std::stringstream String_Stream;
-
-    for(size_t i = 0; i < Matrix.size(); i++){
-
-        for(size_t j = 0; j < Matrix[i].size(); j++){
-
-            String_Stream << Matrix[i][j];
-
-            if(j < Matrix[i].size() - 1){
-
-                String_Stream << ",";
-
-            }
-
-        }
-
-        if(i < Matrix.size() - 1){
-
-                String_Stream << ";";
-
-        }
-
-    }
-
-    return String_Stream.str();
-
-}
-
-std::vector<std::vector<double>> String_To_Matrix(std::string Text, int Rows, int Columns){
-
-    std::vector<std::vector<double>> Matrix;
-
-    std::stringstream Row_Stream(Text);
-    std::string Row_String;
-
-    while(std::getline(Row_Stream, Row_String, ';')){
-
-        if(Row_String.empty()){
-
-            continue;
-
-        }
-
-        std::vector<double> Row;
-
-        std::stringstream Column_Stream(Row_String);
-        std::string Value;
-
-        while(std::getline(Column_Stream, Value, ',')){
-
-            if(Value.empty()){
-
-                continue;
-
-            }
-
-            Row.push_back(std::stod(Value));
-
-        }
-
-        Matrix.push_back(Row);
-
-    }
-
-    if((int)Matrix.size() != Rows){
-
-        throw std::runtime_error("Invalid number of rows");
-
-    }
-
-    for(size_t i = 0; i < Matrix.size(); i++){
-
-        if((int)Matrix[i].size() != Columns){
-
-            throw std::runtime_error("Invalid number of columns.");
-
-        }
-
-    }
-
-    return Matrix;
-
-}
-
-int Count_CSV_Columns(std::string Line){
-
-    if(Line.empty()){
-
-        return 0;
-
-    }
-
-    int Columns = 1;
-
-    for(char Current_Char : Line){
-
-        if(Current_Char == ','){
-
-            Columns++;
-
-        }
-
-    }
-
-    return Columns;
-
-}
-
-std::vector<std::vector<std::string>> Read_CSV_Partitions(std::string Path, int Num_Partitions, int& Dataset_Columns){
-
-    std::vector<std::vector<std::string>> Partitions(Num_Partitions);
-
-    std::ifstream File(Path);
-
-    if(!File.is_open()){
-
-        std::cout << "[ERROR]: Cannot open file " << Path << "\n";
-        Dataset_Columns = 0;
-        return Partitions;
-
-    }
-
-    std::string Line;
-
-    if(std::getline(File, Line)){
-
-        Dataset_Columns = Count_CSV_Columns(Line);
-
-    }
-
-    else{
-
-        Dataset_Columns = 0;
-        return Partitions;
-
-    }
-
-    int Current_Partition = 0;
-
-    while(std::getline(File, Line)){
-
-        if(!Line.empty()){
-
-            Partitions[Current_Partition].push_back(Line);
-
-            Current_Partition++;
-
-            if(Current_Partition == Num_Partitions){
-
-                Current_Partition = 0;
-
-            }
-
-        }
-
-    }
-
-    File.close();
-
-    return Partitions;
-
-}
-
-std::string Join_CSV_Rows(std::vector<std::string> Rows){
-
-    std::string CSV_Block = "";
-
-    for(size_t i = 0; i < Rows.size(); i++){
-
-        CSV_Block += Rows[i];
-
-        if(i < Rows.size() - 1){
-
-            CSV_Block += "\n";
-
-        }
-
-    }
-
-    return CSV_Block;
-
-}
 
 //==================================================
 //              Training Message Logic
@@ -1009,6 +227,8 @@ std::string Build_Weights_Message(int Batch_ID, int Layer_ID, int Rows, int Colu
 
 }
 
+/*
+
 std::string Build_Result_Weights_Message(int Batch_ID, int Layer_ID, int Rows, int Columns, std::string Updated_Weights_Data){
 
     std::string Message = "";
@@ -1022,6 +242,7 @@ std::string Build_Result_Weights_Message(int Batch_ID, int Layer_ID, int Rows, i
     return Message;
 
 }
+*/
 
 Dataset_Distribution Prepare_Dataset_Distribution(std::string Dataset_Path){
 
@@ -1554,19 +775,18 @@ bool Send_End_To_All_Slaves(std::vector<Slave_Info> Slave_List){
 //                     Main
 //==================================================
 
-int main(){
-
-    int Master_Port = 5000;
+/*
+int main()
+{
+    int Master_Port = 45000;
 
     int Master_Socket = Create_UDP_Socket();
 
-    if(Master_Socket < 0){
-
+    if(Master_Socket < 0)
         return 1;
+    
 
-    }
-
-    if(!Bind_UDP_Socket(Master_Socket, Master_Port)){
+    if(!Bind_UDP_Socket(Master_Socket, Master_Port)) {
 
         close(Master_Socket);
         return 1;
@@ -1609,7 +829,7 @@ int main(){
 
     std::cout << "[OK]: All slaves received their dataset blocks correctly.\n";
 
-std::vector<std::vector<std::vector<double>>> Global_Weights(NUM_LAYERS);
+    std::vector<std::vector<std::vector<double>>> Global_Weights(NUM_LAYERS);
 
     //Cambiar a matrices traidas del python. 
 
@@ -1658,9 +878,9 @@ std::vector<std::vector<std::vector<double>>> Global_Weights(NUM_LAYERS);
                 Global_Weights[Layer_Index]
             );
 
-            /*
+            
                 Master promedia los R recibidos.
-            */
+            
             std::vector<std::vector<double>> Averaged_Weights = Average_Weights(
                 Weight_Results
             );
@@ -1709,3 +929,6 @@ std::vector<std::vector<std::vector<double>>> Global_Weights(NUM_LAYERS);
     return 0;
 
 }
+*/
+
+#endif
