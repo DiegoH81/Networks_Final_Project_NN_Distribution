@@ -70,47 +70,37 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 
 
-# Load Model Data
-dest_ip = "127.0.0.1"
-port = 45000
-client = udp_module.UdpClient(dest_ip, port)
+# Setup
+udp_module.slave_init("127.0.0.1", 45000)
+udp_module.register_slave()
 
-# Hello msg
-client.send_msg("HELLO")
+# Recibir dataset y cargarlo
+csv_data = udp_module.receive_dataset()
+df = pd.read_csv(pd.io.common.StringIO(csv_data), header=None)
+X_np = df.iloc[:, :input_dim].values.astype(np.float32)
+y_np = df.iloc[:, -num_classes:].values.astype(np.float32)
+X = torch.tensor(X_np)
+y = torch.tensor(y_np)
 
-# Training
-while(True):
+# Loop de entrenamiento
+while True:
+    batch_id, layer_id, matrix = udp_module.receive_weights()
+
+    if batch_id == -1:  # END
+        break
+
+    # Cargar pesos recibidos a la layer correspondiente
+    layers = [model.fc1, model.fc2, model.fc3, model.fc4]
+    layers[layer_id - 1].weight.data.copy_(torch.tensor(matrix))
+
+    # Entrenar con sus datos
     model.train()
-
     optimizer.zero_grad()
+    logits, log_vars = model(X)
+    loss = criterion(logits, y)
+    loss.backward()
+    optimizer.step()
 
-    ####### Get  matrix
-    ####### Load Matrix from MasterC to Master P
-
-    last_msg = client.receive_latest_msg()
-    print("Last msg:", last_msg)
-    
-    # new_matrix_1, new_matrix_2, new_matrix_3, new_matrix_4 = proto_get_matrix()
-    # model.fc1.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_1)))
-    # model.fc2.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_2)))
-    # model.fc3.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_3)))
-    # model.fc4.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_4)))
-
-    #logits, log_vars = model(X)
-    #loss = criterion(logits, y)
-    #loss.backward()
-    #optimizer.step()
-
-    ####### Extract matrix from NN
-    ####### Send matrix to master P
-
-    to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
-    to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
-    to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
-    to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
-
-    client.send_msg("SENDING")
-    # proto.send_matrix(to_send_1)
-    # proto.send_matrix(to_send_2)
-    # proto.send_matrix(to_send_3)
-    # proto.send_matrix(to_send_4)
+    # Devolver pesos actualizados
+    updated = layers[layer_id - 1].weight.data.tolist()
+    udp_module.send_weights(batch_id, layer_id, updated)
