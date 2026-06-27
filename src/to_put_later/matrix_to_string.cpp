@@ -3,9 +3,7 @@
 #include <string>
 #include <sstream>
 
-std::string matrixToString(
-    const std::vector<std::vector<double>>& matrix
-)
+std::string matrixToString( const std::vector<std::vector<double>>& matrix )
 {
     if (matrix.empty())
         return "0|0|";
@@ -34,8 +32,7 @@ std::string matrixToString(
     return ss.str();
 }
 
-std::vector<std::vector<double>>
-stringToMatrix(const std::string& text)
+std::vector<std::vector<double>> stringToMatrix(const std::string& text)
 {
     std::vector<std::vector<double>> matrix;
 

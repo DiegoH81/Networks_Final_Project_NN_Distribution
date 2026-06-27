@@ -102,56 +102,39 @@ epoch_loss = 0
 counter = 0
 
 # CPP
-puerto = 45000
-server = udp_module.UdpServer(puerto)
-
-server.receieve_hello()
-
+udp_module.master_init(45000)
+udp_module.register_slaves()
+csv_block = udp_module.prepare_and_send_dataset(csv_path)
+df = pd.read_csv(pd.io.common.StringIO(csv_block), header = None)
 
 for batch_x, batch_y in train_loader:
     optimizer.zero_grad()
 
-    if (counter > 0):
-        full_msg = server.receive_full_msg()
-        print("FULL MSG:", full_msg)
-        # load matrix froma Master C starting from second time
-        # new_matrix_1, new_matrix_2, new_matrix_3, new_matrix_4 = proto_get_matrix()
-        
-        # model.fc1.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_1)))
-        # model.fc2.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_2)))
-        # model.fc3.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_3)))
-        # model.fc4.weight.data.copy_(torch.from_numpy(np.asarray(new_weights_matrix_4)))
+    if counter > 0:
+        # Recibir pesos promediados de los slaves y cargarlos
+        averaged_1 = udp_module.train_layer(counter, 1, model.fc1.weight.data.tolist())
+        averaged_2 = udp_module.train_layer(counter, 2, model.fc2.weight.data.tolist())
+        averaged_3 = udp_module.train_layer(counter, 3, model.fc3.weight.data.tolist())
+        averaged_4 = udp_module.train_layer(counter, 4, model.fc4.weight.data.tolist())
+
+        model.fc1.weight.data.copy_(torch.tensor(averaged_1))
+        model.fc2.weight.data.copy_(torch.tensor(averaged_2))
+        model.fc3.weight.data.copy_(torch.tensor(averaged_3))
+        model.fc4.weight.data.copy_(torch.tensor(averaged_4))
 
     logits, log_vars = model(batch_x)
     loss = criterion(logits, batch_y)
     loss.backward()
     optimizer.step()
 
-    # get the matrix and distribute it to the clients
-    to_send_1 = np.matrix(model.fc1.weight.data.cpu().numpy())
-    to_send_2 = np.matrix(model.fc2.weight.data.cpu().numpy())
-    to_send_3 = np.matrix(model.fc3.weight.data.cpu().numpy())
-    to_send_4 = np.matrix(model.fc4.weight.data.cpu().numpy())
-
-
-
-    print("to_send_1", to_send_1.shape)
-    print("to_send_2", to_send_2.shape)
-    print("to_send_3", to_send_3.shape)
-    print("to_send_4", to_send_4.shape)
-    
-    server.send_msg("test")
-    
-    # proto.send_matrix(to_send_1)
-    # proto.send_matrix(to_send_2)
-    # proto.send_matrix(to_send_3)
-    # proto.send_matrix(to_send_4)
-
     epoch_loss += loss.item()
     counter += 1
+
+udp_module.send_end()
+
 train_tracker.append(epoch_loss / len(train_loader))
 
-'''
+
 
 
 # Evaluation on test set
@@ -218,4 +201,3 @@ plt.show()
 # Print classification metrics
 print("\nClassification Report:")
 print(classification_report(y_true, y_pred, digits=3))
-'''
