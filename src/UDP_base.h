@@ -12,6 +12,8 @@
 class UDP_BASE
 {
 public:
+    UDP_BASE(): priv_socket(0) {}
+
     int Create_UDP_Socket()
     {
         int to_return_skt = socket(AF_INET, SOCK_DGRAM, 0);
@@ -46,6 +48,8 @@ public:
         return true;
     }
 protected:
+    int priv_socket;
+
     bool Send_UDP_Packet(int Socket_Master, std::string Packet, sockaddr_in Destination_Address)
     {
         if(Packet.length() != PACKET_LENGTH) {

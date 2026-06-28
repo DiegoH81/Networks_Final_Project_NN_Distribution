@@ -1,26 +1,28 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "wrapper_python.h"
+#include "MasterUDP.h"
+#include "SlaveUDP.h"
 
 namespace py = pybind11;
-
 
 
 PYBIND11_MODULE(udp_module, m)
 { 
     // Master
-    m.def("master_init", &py_master_init, py::arg("port"));
-    m.def("register_slaves", &py_register_slaves);
-    m.def("prepare_and_send_dataset", &py_prepare_and_send_dataset, py::arg("csv_path"));
-    m.def("train_layer", &py_train_layer, py::arg("batch_id"), py::arg("layer_id"), py::arg("current_weights"));
-    m.def("send_end", &py_send_end);
+    py::class_<MasterUDP>(m, "MasterUDP")
+        .def(py::init<int, int>(), py::arg("port"), py::arg("expected_slaves"))
+        .def("register_slaves", &MasterUDP::Register_Slaves)
+        .def("prepare_and_send_dataset", &MasterUDP::prepare_and_send_dataset, py::arg("csv_path"))
+        .def("train_layer", &MasterUDP::py_train_layer, py::arg("batch_id"), py::arg("layer_id"), py::arg("current_weights"))
+        .def("send_end", &MasterUDP::Send_End_To_All_Slaves);
  
     // Slave
-    m.def("slave_init", &py_slave_init, py::arg("master_ip"), py::arg("master_port"));
-    m.def("register_slave", &py_register_slave);
-    m.def("receive_dataset", &py_receive_dataset);
-    m.def("receive_weights", &py_receive_weights);
-    m.def("send_weights", &py_send_weights, py::arg("batch_id"), py::arg("layer_id"), py::arg("matrix"));
+    py::class_<SlaveUDP>(m, "SlaveUDP")
+        .def(py::init<std::string, int>(), py::arg("master_ip"), py::arg("master_port"))
+        .def("register_slave", &SlaveUDP::Register_Slave_To_Master)
+        .def("receive_dataset", &SlaveUDP::receieve_dataset)
+        .def("receive_weights", &SlaveUDP::receieve_weights)
+        .def("send_weights", &SlaveUDP::send_weights, py::arg("batch_id"), py::arg("layer_id"), py::arg("matrix"));
  
 }

@@ -44,17 +44,35 @@ struct Weights_Result
 class MasterUDP: public UDP_BASE
 {
 public:
-
-    std::vector<Slave_Info> Register_Slaves(int Master_Socket, int Expected_Slaves)
+    MasterUDP(int in_port, int in_expected_slaves):
+        UDP_BASE(), port(in_port), all_slaves(), expected_slaves(in_expected_slaves)
     {
-        std::vector<Slave_Info> Slave_List;
-        std::cout << "[INFO]: Waiting for: "  << Expected_Slaves << " slaves...\n";
+        priv_socket = Create_UDP_Socket();
 
-        while((int)Slave_List.size() < Expected_Slaves)
+        if(!Bind_UDP_Socket(priv_socket, port))
+        {
+            close(priv_socket);
+            throw std::runtime_error("[ERROR]: Could not bind master socket.");
+        }
+        
+        if(!Set_Socket_Timeout(priv_socket, TIMEOUT_MS))
+        {
+            close(priv_socket);
+            throw std::runtime_error("[ERROR]: Could not set socket timeout.");
+        }
+
+        std::cout << "[OK]: Master listening on port " << port << "\n";
+    }
+
+    void Register_Slaves()
+    {
+        std::cout << "[INFO]: Waiting for: "  << expected_slaves << " slaves...\n";
+
+        while((int)all_slaves.size() < expected_slaves)
         {
             sockaddr_in Sender_Address;
 
-            std::string Register_Packet = Receive_UDP_Packet(Master_Socket, Sender_Address);
+            std::string Register_Packet = Receive_UDP_Packet(priv_socket, Sender_Address);
 
             if(Register_Packet == "")
             {
@@ -83,9 +101,9 @@ public:
             std::string New_Address_Key = Address_To_String(Sender_Address);
 
             // Check REGISTERED
-            for(size_t i = 0; i < Slave_List.size(); i++)
+            for(size_t i = 0; i < all_slaves.size(); i++)
             {
-                std::string Current_Address = Address_To_String(Slave_List[i].Slave_Address);
+                std::string Current_Address = Address_To_String(all_slaves[i].Slave_Address);
 
                 if(Current_Address == New_Address_Key){
 
@@ -101,7 +119,7 @@ public:
 
             std::string ACK_Packet = Build_ACK_NACK_Packet(Seq_Frag_Num, Seq_Msg_Num, 'A');
 
-            Send_UDP_Packet(Master_Socket, ACK_Packet, Sender_Address);
+            Send_UDP_Packet(priv_socket, ACK_Packet, Sender_Address);
             
             if(Already_Registered)
             {
@@ -111,16 +129,69 @@ public:
 
             Slave_Info New_Slave;
 
-            New_Slave.Slave_ID = Slave_List.size() + 1;
+            New_Slave.Slave_ID = all_slaves.size() + 1;
             New_Slave.Slave_Address = Sender_Address;
 
-            Slave_List.push_back(New_Slave);
+            all_slaves.push_back(New_Slave);
 
             std::cout << "[OK]: Slave " << New_Slave.Slave_ID << " registered from " << Address_To_String(New_Slave.Slave_Address) << " .\n";  
         }
-
-        return Slave_List;
     }
+
+    std::string prepare_and_send_dataset(std::string CSV_path)
+    {
+        Dataset_Distribution Distribution = Prepare_Dataset_Distribution(CSV_path);
+
+        if(Distribution.Dataset_Columns == 0)
+            throw std::runtime_error("[ERROR]: Could not prepare dataset.");
+
+        bool Ok = Send_Dataset_To_All_Slaves(all_slaves, Distribution.Slave_Data_Blocks);
+
+        if(!Ok)
+            throw std::runtime_error("[ERROR]: At least one slave failed receiving dataset.");
+
+        return Distribution.Master_CSV_Block;
+    }
+
+    std::vector<std::vector<double>> py_train_layer(int Batch_ID, int Layer_ID, std::vector<std::vector<double>> Current_Weights)
+    {
+        std::vector<Weights_Result> Results = Train_Layer_With_All_Slaves( all_slaves, Batch_ID, Layer_ID, Current_Weights );
+
+        std::vector<std::vector<double>> Averaged = Average_Weights(Results);
+
+        if(Averaged.empty())
+            throw std::runtime_error("[ERROR]: Could not average weights.");
+
+        return Averaged;
+
+    }
+
+    bool Send_End_To_All_Slaves()
+    {
+        std::vector<int> Results(NUM_SLAVES, 0);
+        std::vector<std::thread> Thread_List;
+
+        for(int i = 0; i < NUM_SLAVES; i++)
+            Thread_List.push_back( std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, all_slaves[i], 'E', 9000 + i, "END", std::ref(Results[i])) );
+
+        for(int i = 0; i < NUM_SLAVES; i++)
+            Thread_List[i].join();
+
+        bool All_Ok = true;
+
+        for(int i = 0; i < NUM_SLAVES; i++)
+        {
+            if(!Results[i])
+                All_Ok = false;
+
+        }
+
+        return All_Ok;
+    }
+
+private:
+    int port, expected_slaves;
+    std::vector<Slave_Info> all_slaves;
 
     bool Send_Message_To_Slave(int Socket_Master, char Message_Type, int Seq_Num_Msg, std::string Full_Data, sockaddr_in Slave_Address)
     {
@@ -594,7 +665,7 @@ public:
 
 
     std::vector<Weights_Result> Train_Layer_With_All_Slaves(std::vector<Slave_Info> Slave_List, int Batch_ID, int Layer_ID,
-                                                        std::vector<std::vector<double>> Current_Weights)
+                                                            std::vector<std::vector<double>> Current_Weights)
     {
         std::vector<Weights_Result> Slave_Results(NUM_SLAVES);
         std::vector<int> Result_Flags(NUM_SLAVES, 0);
@@ -620,29 +691,6 @@ public:
         }
 
         return Slave_Results;
-    }
-
-    bool Send_End_To_All_Slaves(std::vector<Slave_Info> Slave_List)
-    {
-        std::vector<int> Results(NUM_SLAVES, 0);
-        std::vector<std::thread> Thread_List;
-
-        for(int i = 0; i < NUM_SLAVES; i++)
-            Thread_List.push_back( std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, Slave_List[i], 'E', 9000 + i, "END", std::ref(Results[i])) );
-
-        for(int i = 0; i < NUM_SLAVES; i++)
-            Thread_List[i].join();
-
-        bool All_Ok = true;
-
-        for(int i = 0; i < NUM_SLAVES; i++)
-        {
-            if(!Results[i])
-                All_Ok = false;
-
-        }
-
-        return All_Ok;
     }
 
     bool Bind_UDP_Socket(int Socket_Master, int Port)
