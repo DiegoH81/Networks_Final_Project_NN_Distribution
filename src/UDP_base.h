@@ -32,26 +32,6 @@ public:
         return to_return_skt;
 
     }
-    /*
-    bool Set_Socket_Timeout(int Socket_Master, int Timeout_Miliseconds)
-    {
-        timeval Timeout_Value;
-
-        Timeout_Value.tv_sec = Timeout_Miliseconds / 1000;
-        Timeout_Value.tv_usec = (Timeout_Miliseconds % 1000) * 1000;
-
-        int Result = setsockopt(Socket_Master, SOL_SOCKET, SO_RCVTIMEO, &Timeout_Value, sizeof(Timeout_Value));
-
-        if(Result < 0){
-
-            std::cout << "[ERROR]: Could not set socket timeout.\n";
-            return false;
-
-        }
-
-        return true;
-    }
-        */
 protected:
     int priv_socket, connection_port;
 
@@ -116,7 +96,7 @@ protected:
         getsockname(Socket_Master, (sockaddr*)&Local, &Len);
         int Self_Port = ntohs(Local.sin_port);
 
-        std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
+        //std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
 
         // Buffer
         char Buffer[PACKET_LENGTH];

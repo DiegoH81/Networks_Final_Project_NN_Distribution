@@ -87,6 +87,9 @@ test_loader = DataLoader(test_dataset, batch_size  = batch_size, shuffle = False
 # Model setup
 model = MulticlassClassifier(input_dim = input_dim, num_classes = num_classes)
 
+data_init = (model.fc1.weight.data[0:6])
+
+
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
@@ -110,16 +113,29 @@ for batch_x, batch_y in train_loader:
     optimizer.zero_grad()
 
     if counter > 0:
-        # Recibir pesos promediados de los slaves y cargarlos
-        averaged_1 = Master_CPP.train_layer(counter, 1, model.fc1.weight.data.tolist())
-        averaged_2 = Master_CPP.train_layer(counter, 2, model.fc2.weight.data.tolist())
-        averaged_3 = Master_CPP.train_layer(counter, 3, model.fc3.weight.data.tolist())
-        averaged_4 = Master_CPP.train_layer(counter, 4, model.fc4.weight.data.tolist())
+        Master_CPP.send_weights_to_slaves(counter, 1, model.fc1.weight.data.tolist())
+        Master_CPP.send_weights_to_slaves(counter, 2, model.fc2.weight.data.tolist())
+        Master_CPP.send_weights_to_slaves(counter, 3, model.fc3.weight.data.tolist())
+        Master_CPP.send_weights_to_slaves(counter, 4, model.fc4.weight.data.tolist())
 
-        model.fc1.weight.data.copy_(torch.tensor(averaged_1))
-        model.fc2.weight.data.copy_(torch.tensor(averaged_2))
-        model.fc3.weight.data.copy_(torch.tensor(averaged_3))
-        model.fc4.weight.data.copy_(torch.tensor(averaged_4))
+        avg1 = Master_CPP.receive_weights_from_slaves(counter, 1)
+        avg2 = Master_CPP.receive_weights_from_slaves(counter, 2)
+        avg3 = Master_CPP.receive_weights_from_slaves(counter, 3)
+        avg4 = Master_CPP.receive_weights_from_slaves(counter, 4)
+
+        '''
+        model.fc1.weight.data.copy_(torch.tensor(avg1))
+        model.fc2.weight.data.copy_(torch.tensor(avg2))
+        model.fc3.weight.data.copy_(torch.tensor(avg3))
+        model.fc4.weight.data.copy_(torch.tensor(avg4))
+        '''
+        
+        n = 4  # total nodos
+        model.fc1.weight.data.copy_((model.fc1.weight.data + torch.tensor(avg1) * 3) / n)
+        model.fc2.weight.data.copy_((model.fc2.weight.data + torch.tensor(avg2) * 3) / n)
+        model.fc3.weight.data.copy_((model.fc3.weight.data + torch.tensor(avg3) * 3) / n)
+        model.fc4.weight.data.copy_((model.fc4.weight.data + torch.tensor(avg4) * 3) / n)
+        
 
     logits, log_vars = model(batch_x)
     loss = criterion(logits, batch_y)
@@ -130,6 +146,16 @@ for batch_x, batch_y in train_loader:
     counter += 1
 
 Master_CPP.send_end()
+
+
+print("\n--- Pesos iniciales de la capa fc1 ---")
+print(data_init) # Muestra las primeras 2 filas
+print("-" * 30)
+
+print("\n--- Pesos finales de la capa fc1 ---")
+print(model.fc1.weight.data[0:6])
+print("-" * 30)
+
 
 train_tracker.append(epoch_loss / len(train_loader))
 

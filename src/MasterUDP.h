@@ -55,14 +55,6 @@ public:
             throw std::runtime_error("[ERROR]: Could not bind master socket.");
         }
         
-        /*
-        if(!Set_Socket_Timeout(priv_socket, TIMEOUT_MS))
-        {
-            close(priv_socket);
-            throw std::runtime_error("[ERROR]: Could not set socket timeout.");
-        }
-        */
-
         std::cout << "[OK]: Master listening on port " << connection_port << "\n";
     }
 
@@ -155,17 +147,32 @@ public:
         return Distribution.Master_CSV_Block;
     }
 
-    std::vector<std::vector<double>> py_train_layer(int Batch_ID, int Layer_ID, std::vector<std::vector<double>> Current_Weights)
+    void Send_Weight_All_Slaves(int Batch_ID, int Layer_ID,
+                                std::vector<std::vector<double>> Current_Weights)
     {
-        std::vector<Weights_Result> Results = Train_Layer_With_All_Slaves( all_slaves, Batch_ID, Layer_ID, Current_Weights );
+        layer_sockets[Layer_ID] = std::vector<int>(all_slaves.size(), -1);
 
-        std::vector<std::vector<double>> Averaged = Average_Weights(Results);
+        for(int i = 0; i < NUM_SLAVES; i++)
+            Send_Weight_Slave(all_slaves[i], Batch_ID, Layer_ID, Current_Weights, layer_sockets[Layer_ID][i]);
 
-        if(Averaged.empty())
-            throw std::runtime_error("[ERROR]: Could not average weights.");
+    }
 
-        return Averaged;
+    std::vector<std::vector<double>> Receive_Weights_From_All_Slaves(int Batch_ID, int Layer_ID)
+    {
+        std::vector<Weights_Result> Results(all_slaves.size());
+        std::vector<int> Flags(all_slaves.size(), 0);
+        std::vector<std::thread> Thread_List;
 
+        for(int i = 0; i < all_slaves.size(); i++)
+            Thread_List.push_back(std::thread(&MasterUDP::Receive_Weights_From_Slave, this,
+                                              all_slaves[i], Batch_ID, Layer_ID,
+                                              std::ref(Results[i]), std::ref(Flags[i]),
+                                              layer_sockets[Layer_ID][i]));
+
+        for(auto& t : Thread_List)
+            t.join();
+
+        return Average_Weights(Results);
     }
 
     bool Send_End_To_All_Slaves()
@@ -194,6 +201,7 @@ public:
 private:
     int expected_slaves;
     std::vector<Slave_Info> all_slaves;
+    std::map<int, std::vector<int>> layer_sockets; 
 
     bool Send_Message_To_Slave(int Socket_Master, char Message_Type, int Seq_Num_Msg, std::string Full_Data, sockaddr_in Slave_Address)
     {
@@ -226,16 +234,6 @@ private:
             Result_Flag = 0;
             return;
         }
-
-        /*
-        if(!Set_Socket_Timeout(Thread_Socket, TIMEOUT_MS)){
-
-            close(Thread_Socket);
-            Result_Flag = 0;
-            return;
-
-        }
-        */
 
         std::cout << "[INFO]: Thread Sending to slave " << Current_Slave.Slave_ID << " at " << Address_To_String(Current_Slave.Slave_Address) << "\n";
         
@@ -522,20 +520,12 @@ private:
 
             std::vector<std::vector<double>> Current_Matrix;
 
-            try{
+            
+            Current_Matrix = String_To_Matrix( Weight_Results[Result_Index].Weights_Data,
+                                               Weight_Results[Result_Index].Rows,
+                                               Weight_Results[Result_Index].Columns );
 
-                Current_Matrix = String_To_Matrix( Weight_Results[Result_Index].Weights_Data, Weight_Results[Result_Index].Rows,
-                                                Weight_Results[Result_Index].Columns
-                );
-
-            }
-            catch(std::exception& Error){
-
-                std::cout << "[ERROR]: Could not parse weights for average.\n";
-                std::cout << Error.what() << "\n";
-                continue;
-
-            }
+            
 
             if(Weight_Results[Result_Index].Rows != Rows || Weight_Results[Result_Index].Columns != Columns)
             {
@@ -570,33 +560,13 @@ private:
         return Average_Matrix;
     }
 
-    void Train_Layer_With_Slave_Thread(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
-                                       std::vector<std::vector<double>> Current_Weights, Weights_Result& Slave_Result,
-                                       int& Result_Flag)
+    void Send_Weight_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
+                           std::vector<std::vector<double>> Current_Weights, int &out_socket)
     {
+        out_socket = Create_UDP_Socket();
 
-        Result_Flag = 0;
-
-        Slave_Result.Batch_ID = -1;
-        Slave_Result.Layer_ID = -1;
-        Slave_Result.Rows = 0;
-        Slave_Result.Columns = 0;
-        Slave_Result.Weights_Data = "";
-        Slave_Result.Is_Valid = false;
-
-        int Thread_Socket = Create_UDP_Socket();
-
-        if(Thread_Socket < 0)
+        if(out_socket < 0)
             return;
-
-        /*
-        if(!Set_Socket_Timeout(Thread_Socket, TIMEOUT_MS)){
-
-            close(Thread_Socket);
-            return;
-
-        }
-        */
 
         int Rows = Current_Weights.size();
         int Columns = 0;
@@ -608,95 +578,44 @@ private:
 
         std::string Weights_Message = Build_Weights_Message(Batch_ID, Layer_ID, Rows, Columns, Weights_Data); 
 
-
-        std::cout << "[INFO]: Sending P to slave " << Current_Slave.Slave_ID << "\n"
-                  << "Batch -> " << Batch_ID << "\n"
-                  << "Layer -> "<< Layer_ID << "\n";
-
-        bool Send_Ok = Send_Message_To_Slave(Thread_Socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
+        bool Send_Ok = Send_Message_To_Slave(out_socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
 
         if(!Send_Ok)
         {
             std::cout << "[ERROR]: Could not send P to slave " << Current_Slave.Slave_ID << ".\n";
-            close(Thread_Socket);
+            close(out_socket);
             return;
         }
 
-        std::cout << "[INFO]: Waiting R from slave " << Current_Slave.Slave_ID << ".\n";
-
-        std::string Result_Message = Receive_Message_With_ACK(Thread_Socket);
-
-        if(Result_Message == ""){
-
-            std::cout << "[ERROR]: Empty R received from slave " << Current_Slave.Slave_ID << ".\n";
-            close(Thread_Socket);
-            return;
-
-        } 
-
-        Weights_Result Parsed_Result = Parse_Result_Weights_Message(Result_Message);
-
-        if(!Parsed_Result.Is_Valid){
-
-            std::cout << "[ERROR]: Invalid R received from slave " << Current_Slave.Slave_ID << ".\n";
-            close(Thread_Socket);
-            return;
-
-        }
-        
-        if(Parsed_Result.Batch_ID != Batch_ID){
-
-            std::cout << "[ERROR]: R Batch_ID does not match.\n";
-            close(Thread_Socket);
-            return;
-
-        }
-
-        if(Parsed_Result.Layer_ID != Layer_ID){
-
-            std::cout << "[ERROR]: R Layer_ID does not match.\n";
-            close(Thread_Socket);
-            return;
-
-        }
-
-        Slave_Result = Parsed_Result;
-        Result_Flag = 1;
-
-        std::cout << "[OK]: R Received correctly from slave " << Current_Slave.Slave_ID << ".\n";
-
-        close(Thread_Socket);
-
+        //close(Thread_Socket);
     }
 
-
-    std::vector<Weights_Result> Train_Layer_With_All_Slaves(std::vector<Slave_Info> Slave_List, int Batch_ID, int Layer_ID,
-                                                            std::vector<std::vector<double>> Current_Weights)
+    void Receive_Weights_From_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
+                                    Weights_Result& Slave_Result, int& Result_Flag,
+                                    int in_socket)
     {
-        std::vector<Weights_Result> Slave_Results(NUM_SLAVES);
-        std::vector<int> Result_Flags(NUM_SLAVES, 0);
-        std::vector<std::thread> Thread_List;
-        
-        for(int i = 0; i < NUM_SLAVES; i++)
+        Result_Flag = 0;
+        Slave_Result.Is_Valid = false;
+
+        std::string Result_Message = Receive_Message_With_ACK(in_socket);
+
+        if(Result_Message.empty())
         {
-            Thread_List.push_back( std::thread(&MasterUDP::Train_Layer_With_Slave_Thread, this, Slave_List[i], Batch_ID, Layer_ID, Current_Weights, 
-                                               std::ref(Slave_Results[i]), std::ref(Result_Flags[i])) );
+            close(in_socket);
+            return;
         }
 
-        for(int i = 0; i < NUM_SLAVES; i++)
-            Thread_List[i].join();
+        Weights_Result Parsed = Parse_Result_Weights_Message(Result_Message);
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        if(!Parsed.Is_Valid || Parsed.Batch_ID != Batch_ID || Parsed.Layer_ID != Layer_ID)
         {
-
-            if(Result_Flags[i])
-                std::cout << "[OK]: Slave " << i + 1 << " returned valid weights.\n";
-            else
-                std::cout << "[ERROR]: Slave " << i + 1 << " failed returning weights.\n";
-
+            close(in_socket);
+            return;
         }
 
-        return Slave_Results;
+        Slave_Result = Parsed;
+        Result_Flag = 1;
+        close(in_socket);
     }
 
     bool Bind_UDP_Socket(int Socket_Master, int Port)
