@@ -95,4 +95,17 @@ inline unsigned int Calculate_CRC32(std::string Payload)
     return CRC32_Value ^ 0xFFFFFFFF;
 }
 
+inline sockaddr_in Create_Address(std::string IP_Address, int Port)
+{
+    sockaddr_in Address;
+    std::memset(&Address, 0, sizeof(Address));
+
+    Address.sin_family = AF_INET;
+    Address.sin_port = htons(Port);
+    Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
+
+    return Address;
+
+}
+
 #endif

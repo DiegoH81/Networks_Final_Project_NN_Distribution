@@ -6,13 +6,17 @@
 #include <cstring>
 #include <iostream>
 
+#include <memory>
+
 #include "definitions.h"
 #include "function_utils.h"
 
 class UDP_BASE
 {
 public:
-    UDP_BASE(): priv_socket(0) {}
+    UDP_BASE(int in_port):
+        priv_socket(0), connection_port(in_port)
+    {}
 
     int Create_UDP_Socket()
     {
@@ -28,27 +32,36 @@ public:
         return to_return_skt;
 
     }
+protected:
+    int priv_socket, connection_port;
 
-    bool Set_Socket_Timeout(int Socket_Master, int Timeout_Miliseconds)
+    void check_timeout(int socket_master, int self_port, std::shared_ptr<bool> timeout_elapsed, std::shared_ptr<bool> message_done)
     {
-        timeval Timeout_Value;
+        int num_partitions = 5;
+        int step = TIMEOUT_MS / num_partitions;
 
-        Timeout_Value.tv_sec = Timeout_Miliseconds / 1000;
-        Timeout_Value.tv_usec = (Timeout_Miliseconds % 1000) * 1000;
+        int counter = 0;
+        while (counter  < num_partitions)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(step));
+            if (*message_done)
+                return;
 
-        int Result = setsockopt(Socket_Master, SOL_SOCKET, SO_RCVTIMEO, &Timeout_Value, sizeof(Timeout_Value));
-
-        if(Result < 0){
-
-            std::cout << "[ERROR]: Could not set socket timeout.\n";
-            return false;
-
+            counter++;
         }
 
-        return true;
+        if (*message_done)
+            return;
+        else
+        {
+            auto self_address = Create_Address("127.0.0.1", self_port);
+
+            std::string Dummy(PACKET_LENGTH, '0');
+            sendto(socket_master, Dummy.c_str(), PACKET_LENGTH, 0, (sockaddr*)&self_address, sizeof(self_address));
+
+            *timeout_elapsed = true;
+        }
     }
-protected:
-    int priv_socket;
 
     bool Send_UDP_Packet(int Socket_Master, std::string Packet, sockaddr_in Destination_Address)
     {
@@ -73,25 +86,35 @@ protected:
 
     std::string Receive_UDP_Packet(int Socket_Master, sockaddr_in& Sender_Address)
     {
+        // Timeout 
+        auto timeout_elapsed = std::make_shared<bool>(false);
+        auto message_done = std::make_shared<bool>(false);
+
+        // PORT
+        sockaddr_in Local;
+        socklen_t Len = sizeof(Local);
+        getsockname(Socket_Master, (sockaddr*)&Local, &Len);
+        int Self_Port = ntohs(Local.sin_port);
+
+        //std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
+
+        // Buffer
         char Buffer[PACKET_LENGTH];
 
         socklen_t Sender_Length = sizeof(Sender_Address);
 
         int Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, 0, (sockaddr*)&Sender_Address, &Sender_Length);
-
-        if(Bytes_Received <= 0){
-
+        
+        if(Bytes_Received <= 0)
             return "";
-
-        }
-
-        if(Bytes_Received != PACKET_LENGTH){
-
+        else if (*timeout_elapsed)
+            return "";
+        else if(Bytes_Received != PACKET_LENGTH){
             std::cout << "[ERROR]: Incomplete UDP Packet received.\n";
             return "";
-
         }
 
+        *message_done = true;
         std::string Packet(Buffer, Bytes_Received);
         return Packet;
     }
@@ -107,8 +130,8 @@ protected:
         {
             bool Send_Result = Send_UDP_Packet(in_socket, Packet, Destination_Address);
 
-            if(!Send_Result){
-
+            if(!Send_Result)
+            {
                 std::cout << "[ERROR]: Packet send failed. Retry : " << Retry_Count << " .\n";
                 Retry_Count++;
                 continue; 

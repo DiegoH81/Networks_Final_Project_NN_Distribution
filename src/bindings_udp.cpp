@@ -14,7 +14,8 @@ PYBIND11_MODULE(udp_module, m)
         .def(py::init<int, int>(), py::arg("port"), py::arg("expected_slaves"))
         .def("register_slaves", &MasterUDP::Register_Slaves)
         .def("prepare_and_send_dataset", &MasterUDP::prepare_and_send_dataset, py::arg("csv_path"))
-        .def("train_layer", &MasterUDP::py_train_layer, py::arg("batch_id"), py::arg("layer_id"), py::arg("current_weights"))
+        .def("send_weights_to_slaves", &MasterUDP::Send_Weight_All_Slaves, py::arg("batch"), py::arg("layer"), py::arg("weights"))
+        .def("receive_weights_from_slaves", &MasterUDP::Receive_Weights_From_All_Slaves, py::arg("batch"), py::arg("layer"))
         .def("send_end", &MasterUDP::Send_End_To_All_Slaves);
  
     // Slave

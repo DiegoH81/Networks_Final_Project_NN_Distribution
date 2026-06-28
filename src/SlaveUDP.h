@@ -21,11 +21,11 @@ class SlaveUDP: public UDP_BASE
 {
 public:
 
-    SlaveUDP(std::string in_server_ip, int in_port) : UDP_BASE(), master_port(in_port)
+    SlaveUDP(std::string in_server_ip, int in_port) :
+        UDP_BASE(in_port)
     {
         priv_socket = Create_UDP_Socket();
-        Set_Socket_Timeout(priv_socket, TIMEOUT_MS);
-        master_Address = Create_Address(in_server_ip, master_port);
+        master_Address = Create_Address(in_server_ip, connection_port);
     }
 
     std::string receieve_dataset()
@@ -100,6 +100,8 @@ public:
         if(!Parsed.Is_Valid)
             throw std::runtime_error("[ERROR]: Invalid P message received.");
 
+        sender_per_layer[Parsed.Layer_ID] = last_sender_Address;
+
         std::vector<std::vector<double>> Matrix = String_To_Matrix( Parsed.Weights_Data, Parsed.Rows, Parsed.Columns );
 
         return {Parsed.Batch_ID, Parsed.Layer_ID, Matrix};
@@ -113,7 +115,9 @@ public:
         std::string Weights_Data = Matrix_To_String(Matrix);
         std::string Result_Message = Build_Result_Weights_Message( Batch_ID, Layer_ID, Rows, Columns, Weights_Data );
 
-        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, last_sender_Address);
+        sockaddr_in Target = sender_per_layer[Layer_ID];
+
+        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, Target);
 
         if(!Ok)
             throw std::runtime_error("[ERROR]: Could not send weights to master.");
@@ -121,8 +125,8 @@ public:
 private:
     sockaddr_in master_Address;
     sockaddr_in last_sender_Address;
+    std::map<int, sockaddr_in> sender_per_layer;
 
-    int master_port;
 
     Weights_Message Parse_Weights_Message(std::string Weights_Message_Text)
     {
@@ -311,19 +315,6 @@ private:
         std::cout << "[OK]: Full message " << Seq_Num_Msg << " sent correctly.\n";
 
         return true;
-    }
-
-    sockaddr_in Create_Address(std::string IP_Address, int Port)
-    {
-        sockaddr_in Address;
-        std::memset(&Address, 0, sizeof(Address));
-
-        Address.sin_family = AF_INET;
-        Address.sin_port = htons(Port);
-        Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
-
-        return Address;
-
     }
 };
 
