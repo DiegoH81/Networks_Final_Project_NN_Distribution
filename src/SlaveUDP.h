@@ -21,11 +21,12 @@ class SlaveUDP: public UDP_BASE
 {
 public:
 
-    SlaveUDP(std::string in_server_ip, int in_port) : UDP_BASE(), master_port(in_port)
+    SlaveUDP(std::string in_server_ip, int in_port) :
+        UDP_BASE(in_port)
     {
         priv_socket = Create_UDP_Socket();
-        Set_Socket_Timeout(priv_socket, TIMEOUT_MS);
-        master_Address = Create_Address(in_server_ip, master_port);
+        //Set_Socket_Timeout(priv_socket, TIMEOUT_MS);
+        master_Address = Create_Address(in_server_ip, connection_port);
     }
 
     std::string receieve_dataset()
@@ -121,8 +122,6 @@ public:
 private:
     sockaddr_in master_Address;
     sockaddr_in last_sender_Address;
-
-    int master_port;
 
     Weights_Message Parse_Weights_Message(std::string Weights_Message_Text)
     {
@@ -311,19 +310,6 @@ private:
         std::cout << "[OK]: Full message " << Seq_Num_Msg << " sent correctly.\n";
 
         return true;
-    }
-
-    sockaddr_in Create_Address(std::string IP_Address, int Port)
-    {
-        sockaddr_in Address;
-        std::memset(&Address, 0, sizeof(Address));
-
-        Address.sin_family = AF_INET;
-        Address.sin_port = htons(Port);
-        Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
-
-        return Address;
-
     }
 };
 

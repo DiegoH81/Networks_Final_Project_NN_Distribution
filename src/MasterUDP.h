@@ -45,23 +45,25 @@ class MasterUDP: public UDP_BASE
 {
 public:
     MasterUDP(int in_port, int in_expected_slaves):
-        UDP_BASE(), port(in_port), all_slaves(), expected_slaves(in_expected_slaves)
+        UDP_BASE(in_port), all_slaves(), expected_slaves(in_expected_slaves)
     {
         priv_socket = Create_UDP_Socket();
 
-        if(!Bind_UDP_Socket(priv_socket, port))
+        if(!Bind_UDP_Socket(priv_socket, connection_port))
         {
             close(priv_socket);
             throw std::runtime_error("[ERROR]: Could not bind master socket.");
         }
         
+        /*
         if(!Set_Socket_Timeout(priv_socket, TIMEOUT_MS))
         {
             close(priv_socket);
             throw std::runtime_error("[ERROR]: Could not set socket timeout.");
         }
+        */
 
-        std::cout << "[OK]: Master listening on port " << port << "\n";
+        std::cout << "[OK]: Master listening on port " << connection_port << "\n";
     }
 
     void Register_Slaves()
@@ -190,7 +192,7 @@ public:
     }
 
 private:
-    int port, expected_slaves;
+    int expected_slaves;
     std::vector<Slave_Info> all_slaves;
 
     bool Send_Message_To_Slave(int Socket_Master, char Message_Type, int Seq_Num_Msg, std::string Full_Data, sockaddr_in Slave_Address)
@@ -225,13 +227,15 @@ private:
             return;
         }
 
+        /*
         if(!Set_Socket_Timeout(Thread_Socket, TIMEOUT_MS)){
 
             close(Thread_Socket);
             Result_Flag = 0;
             return;
 
-        }  
+        }
+        */
 
         std::cout << "[INFO]: Thread Sending to slave " << Current_Slave.Slave_ID << " at " << Address_To_String(Current_Slave.Slave_Address) << "\n";
         
@@ -585,12 +589,14 @@ private:
         if(Thread_Socket < 0)
             return;
 
+        /*
         if(!Set_Socket_Timeout(Thread_Socket, TIMEOUT_MS)){
 
             close(Thread_Socket);
             return;
 
         }
+        */
 
         int Rows = Current_Weights.size();
         int Columns = 0;
