@@ -71,36 +71,44 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 
 # Setup
-udp_module.slave_init("127.0.0.1", 45000)
-udp_module.register_slave()
+SlaveCPP = udp_module.SlaveUDP("127.0.0.1", 45000)
+SlaveCPP.register_slave()
 
 # Recibir dataset y cargarlo
-csv_data = udp_module.receive_dataset()
+csv_data = SlaveCPP.receive_dataset()
 df = pd.read_csv(pd.io.common.StringIO(csv_data), header=None)
 X_np = df.iloc[:, :input_dim].values.astype(np.float32)
 y_np = df.iloc[:, -num_classes:].values.astype(np.float32)
 X = torch.tensor(X_np)
 y = torch.tensor(y_np)
 
+
+pending_weights = {}
+layers = [model.fc1, model.fc2, model.fc3, model.fc4]
+
 # Loop de entrenamiento
 while True:
-    batch_id, layer_id, matrix = udp_module.receive_weights()
+    batch_id, layer_id, matrix = SlaveCPP.receive_weights()
 
     if batch_id == -1:  # END
         break
 
-    # Cargar pesos recibidos a la layer correspondiente
-    layers = [model.fc1, model.fc2, model.fc3, model.fc4]
     layers[layer_id - 1].weight.data.copy_(torch.tensor(matrix))
-
-    # Entrenar con sus datos
-    model.train()
-    optimizer.zero_grad()
-    logits, log_vars = model(X)
-    loss = criterion(logits, y)
-    loss.backward()
-    optimizer.step()
-
-    # Devolver pesos actualizados
-    updated = layers[layer_id - 1].weight.data.tolist()
-    udp_module.send_weights(batch_id, layer_id, updated)
+    
+    pending_weights[layer_id] = True
+    if len(pending_weights) == len(layers):
+        # Entrenar con sus datos
+        model.train()
+        optimizer.zero_grad()
+        logits, log_vars = model(X)
+        loss = criterion(logits, y)
+        loss.backward()
+        optimizer.step()
+        
+        
+        SlaveCPP.send_weights(batch_id, 1, model.fc1.weight.data.tolist())
+        SlaveCPP.send_weights(batch_id, 2, model.fc2.weight.data.tolist())
+        SlaveCPP.send_weights(batch_id, 3, model.fc3.weight.data.tolist())
+        SlaveCPP.send_weights(batch_id, 4, model.fc4.weight.data.tolist())
+        
+        pending_weights.clear()
