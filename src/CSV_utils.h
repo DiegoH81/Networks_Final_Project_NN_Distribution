@@ -1,5 +1,5 @@
-#ifndef CSV_TEMP_H
-#define CSV_TEMP_H
+#ifndef CSV_UTILS_H
+#define CSV_UTILS_H
 
 #include <string>
 #include <vector>
@@ -34,18 +34,16 @@ inline int Count_CSV_Columns(std::string Line){
 
 }
 
-inline std::vector<std::vector<std::string>> Read_CSV_Partitions(std::string Path, int Num_Partitions, int& Dataset_Columns){
-
+inline std::vector<std::vector<std::string>> Read_CSV_Partitions(std::string Path, int Num_Partitions, int& Dataset_Columns)
+{
     std::vector<std::vector<std::string>> Partitions(Num_Partitions);
-
     std::ifstream File(Path);
 
-    if(!File.is_open()){
-
+    if(!File.is_open())
+    {
         std::cout << "[ERROR]: Cannot open file " << Path << "\n";
         Dataset_Columns = 0;
         return Partitions;
-
     }
 
     std::string Line;
@@ -55,7 +53,6 @@ inline std::vector<std::vector<std::string>> Read_CSV_Partitions(std::string Pat
         Dataset_Columns = Count_CSV_Columns(Line);
 
     }
-
     else{
 
         Dataset_Columns = 0;
@@ -89,8 +86,8 @@ inline std::vector<std::vector<std::string>> Read_CSV_Partitions(std::string Pat
 
 }
 
-inline std::string Join_CSV_Rows(std::vector<std::string> Rows){
-
+inline std::string Join_CSV_Rows(std::vector<std::string> Rows)
+{
     std::string CSV_Block = "";
 
     for(size_t i = 0; i < Rows.size(); i++){
@@ -106,7 +103,6 @@ inline std::string Join_CSV_Rows(std::vector<std::string> Rows){
     }
 
     return CSV_Block;
-
 }
 
 #endif

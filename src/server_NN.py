@@ -52,7 +52,6 @@ batch_size = 100
 
 
 # Load dataset from CSV
-# csv_path = "..//data//Dataset of Diabetes.csv"  # replace with your actual CSV file path   1000,13,3,50
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 csv_path = os.path.join(current_dir, "..", "data", "Dataset of Diabetes.csv")
@@ -102,9 +101,9 @@ epoch_loss = 0
 counter = 0
 
 # CPP
-udp_module.master_init(45000)
-udp_module.register_slaves()
-csv_block = udp_module.prepare_and_send_dataset(csv_path)
+Master_CPP = udp_module.MasterUDP(45000, 3)
+Master_CPP.register_slaves()
+csv_block = Master_CPP.prepare_and_send_dataset(csv_path)
 df = pd.read_csv(pd.io.common.StringIO(csv_block), header = None)
 
 for batch_x, batch_y in train_loader:
@@ -112,10 +111,10 @@ for batch_x, batch_y in train_loader:
 
     if counter > 0:
         # Recibir pesos promediados de los slaves y cargarlos
-        averaged_1 = udp_module.train_layer(counter, 1, model.fc1.weight.data.tolist())
-        averaged_2 = udp_module.train_layer(counter, 2, model.fc2.weight.data.tolist())
-        averaged_3 = udp_module.train_layer(counter, 3, model.fc3.weight.data.tolist())
-        averaged_4 = udp_module.train_layer(counter, 4, model.fc4.weight.data.tolist())
+        averaged_1 = Master_CPP.train_layer(counter, 1, model.fc1.weight.data.tolist())
+        averaged_2 = Master_CPP.train_layer(counter, 2, model.fc2.weight.data.tolist())
+        averaged_3 = Master_CPP.train_layer(counter, 3, model.fc3.weight.data.tolist())
+        averaged_4 = Master_CPP.train_layer(counter, 4, model.fc4.weight.data.tolist())
 
         model.fc1.weight.data.copy_(torch.tensor(averaged_1))
         model.fc2.weight.data.copy_(torch.tensor(averaged_2))
@@ -130,7 +129,7 @@ for batch_x, batch_y in train_loader:
     epoch_loss += loss.item()
     counter += 1
 
-udp_module.send_end()
+Master_CPP.send_end()
 
 train_tracker.append(epoch_loss / len(train_loader))
 

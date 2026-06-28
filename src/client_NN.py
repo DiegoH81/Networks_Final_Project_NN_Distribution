@@ -71,11 +71,11 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 
 # Setup
-udp_module.slave_init("127.0.0.1", 45000)
-udp_module.register_slave()
+SlaveCPP = udp_module.SlaveUDP("127.0.0.1", 45000)
+SlaveCPP.register_slave()
 
 # Recibir dataset y cargarlo
-csv_data = udp_module.receive_dataset()
+csv_data = SlaveCPP.receive_dataset()
 df = pd.read_csv(pd.io.common.StringIO(csv_data), header=None)
 X_np = df.iloc[:, :input_dim].values.astype(np.float32)
 y_np = df.iloc[:, -num_classes:].values.astype(np.float32)
@@ -84,7 +84,7 @@ y = torch.tensor(y_np)
 
 # Loop de entrenamiento
 while True:
-    batch_id, layer_id, matrix = udp_module.receive_weights()
+    batch_id, layer_id, matrix = SlaveCPP.receive_weights()
 
     if batch_id == -1:  # END
         break
@@ -103,4 +103,4 @@ while True:
 
     # Devolver pesos actualizados
     updated = layers[layer_id - 1].weight.data.tolist()
-    udp_module.send_weights(batch_id, layer_id, updated)
+    SlaveCPP.send_weights(batch_id, layer_id, updated)

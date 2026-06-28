@@ -1,5 +1,5 @@
-#ifndef MATRIX_TEMP_H
-#define MATRIX_TEMP_H
+#ifndef MATRIX_UTILS_H
+#define MATRIX_UTILS_H
 
 #include <string>
 #include <vector>
@@ -9,7 +9,7 @@
 //               Parsers and Dividers
 //==================================================
 
-inline std::string Matrix_To_String(std::vector<std::vector<double>> Matrix){
+inline std::string Matrix_To_String(std::vector<std::vector<double>> Matrix) {
 
     std::stringstream String_Stream;
 
@@ -39,7 +39,7 @@ inline std::string Matrix_To_String(std::vector<std::vector<double>> Matrix){
 
 }
 
-inline std::vector<std::vector<double>> String_To_Matrix(std::string Text, int Rows, int Columns){
+inline std::vector<std::vector<double>> String_To_Matrix(std::string Text, int Rows, int Columns) {
 
     std::vector<std::vector<double>> Matrix;
 
@@ -94,24 +94,6 @@ inline std::vector<std::vector<double>> String_To_Matrix(std::string Text, int R
     return Matrix;
 
 }
-
-
-inline std::vector<std::vector<double>> Update_Weights_For_Test(std::vector<std::vector<double>> Weights){
-
-    for(size_t i = 0; i < Weights.size(); i++){
-
-        for(size_t j = 0; j < Weights[i].size(); j++){
-
-            Weights[i][j] += 0.01;
-
-        }
-
-    }
-
-    return Weights;
-
-}
-
 
 
 #endif
