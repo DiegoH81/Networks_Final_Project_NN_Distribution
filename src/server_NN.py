@@ -52,7 +52,6 @@ batch_size = 100
 
 
 # Load dataset from CSV
-# csv_path = "..//data//Dataset of Diabetes.csv"  # replace with your actual CSV file path   1000,13,3,50
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 csv_path = os.path.join(current_dir, "..", "data", "Dataset of Diabetes.csv")
