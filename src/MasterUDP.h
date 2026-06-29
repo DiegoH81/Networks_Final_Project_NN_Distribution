@@ -20,6 +20,7 @@ struct Slave_Info
 {
     int Slave_ID;
     sockaddr_in Slave_Address;
+    int Socket;
 };
 
 struct Dataset_Distribution
@@ -62,7 +63,7 @@ public:
     {
         std::cout << "[INFO]: Waiting for: "  << expected_slaves << " slaves...\n";
 
-        while((int)all_slaves.size() < expected_slaves)
+        while(all_slaves.size() < expected_slaves)
         {
             sockaddr_in Sender_Address;
 
@@ -125,6 +126,7 @@ public:
 
             New_Slave.Slave_ID = all_slaves.size() + 1;
             New_Slave.Slave_Address = Sender_Address;
+            New_Slave.Socket = Create_UDP_Socket();
 
             all_slaves.push_back(New_Slave);
 
@@ -150,10 +152,8 @@ public:
     void Send_Weight_All_Slaves(int Batch_ID, int Layer_ID,
                                 std::vector<std::vector<double>> Current_Weights)
     {
-        layer_sockets[Layer_ID] = std::vector<int>(all_slaves.size(), -1);
-
-        for(int i = 0; i < NUM_SLAVES; i++)
-            Send_Weight_Slave(all_slaves[i], Batch_ID, Layer_ID, Current_Weights, layer_sockets[Layer_ID][i]);
+        for(int i = 0; i < all_slaves.size(); i++)
+            Send_Weight_Slave(all_slaves[i], Batch_ID, Layer_ID, Current_Weights);
 
     }
 
@@ -166,8 +166,7 @@ public:
         for(int i = 0; i < all_slaves.size(); i++)
             Thread_List.push_back(std::thread(&MasterUDP::Receive_Weights_From_Slave, this,
                                               all_slaves[i], Batch_ID, Layer_ID,
-                                              std::ref(Results[i]), std::ref(Flags[i]),
-                                              layer_sockets[Layer_ID][i]));
+                                              std::ref(Results[i]), std::ref(Flags[i])));
 
         for(auto& t : Thread_List)
             t.join();
@@ -201,7 +200,6 @@ public:
 private:
     int expected_slaves;
     std::vector<Slave_Info> all_slaves;
-    std::map<int, std::vector<int>> layer_sockets; 
 
     bool Send_Message_To_Slave(int Socket_Master, char Message_Type, int Seq_Num_Msg, std::string Full_Data, sockaddr_in Slave_Address)
     {
@@ -561,13 +559,8 @@ private:
     }
 
     void Send_Weight_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
-                           std::vector<std::vector<double>> Current_Weights, int &out_socket)
+                           std::vector<std::vector<double>> Current_Weights)
     {
-        out_socket = Create_UDP_Socket();
-
-        if(out_socket < 0)
-            return;
-
         int Rows = Current_Weights.size();
         int Columns = 0;
 
@@ -575,47 +568,32 @@ private:
             Columns = Current_Weights[0].size();
 
         std::string Weights_Data = Matrix_To_String(Current_Weights);
-
         std::string Weights_Message = Build_Weights_Message(Batch_ID, Layer_ID, Rows, Columns, Weights_Data); 
 
-        bool Send_Ok = Send_Message_To_Slave(out_socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
+        bool Send_Ok = Send_Message_To_Slave(Current_Slave.Socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
 
         if(!Send_Ok)
-        {
             std::cout << "[ERROR]: Could not send P to slave " << Current_Slave.Slave_ID << ".\n";
-            close(out_socket);
-            return;
-        }
-
-        //close(Thread_Socket);
     }
 
     void Receive_Weights_From_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
-                                    Weights_Result& Slave_Result, int& Result_Flag,
-                                    int in_socket)
+                                    Weights_Result& Slave_Result, int& Result_Flag)
     {
         Result_Flag = 0;
         Slave_Result.Is_Valid = false;
 
-        std::string Result_Message = Receive_Message_With_ACK(in_socket);
+        std::string Result_Message = Receive_Message_With_ACK(Current_Slave.Socket);
 
         if(Result_Message.empty())
-        {
-            close(in_socket);
             return;
-        }
 
         Weights_Result Parsed = Parse_Result_Weights_Message(Result_Message);
 
         if(!Parsed.Is_Valid || Parsed.Batch_ID != Batch_ID || Parsed.Layer_ID != Layer_ID)
-        {
-            close(in_socket);
             return;
-        }
 
         Slave_Result = Parsed;
         Result_Flag = 1;
-        close(in_socket);
     }
 
     bool Bind_UDP_Socket(int Socket_Master, int Port)

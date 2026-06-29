@@ -87,8 +87,7 @@ test_loader = DataLoader(test_dataset, batch_size  = batch_size, shuffle = False
 # Model setup
 model = MulticlassClassifier(input_dim = input_dim, num_classes = num_classes)
 
-data_init = (model.fc1.weight.data[0:6])
-
+data_init = model.fc1.weight.data[0:6].clone()
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)

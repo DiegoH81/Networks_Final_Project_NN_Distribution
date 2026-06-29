@@ -100,8 +100,6 @@ public:
         if(!Parsed.Is_Valid)
             throw std::runtime_error("[ERROR]: Invalid P message received.");
 
-        sender_per_layer[Parsed.Layer_ID] = last_sender_Address;
-
         std::vector<std::vector<double>> Matrix = String_To_Matrix( Parsed.Weights_Data, Parsed.Rows, Parsed.Columns );
 
         return {Parsed.Batch_ID, Parsed.Layer_ID, Matrix};
@@ -115,9 +113,7 @@ public:
         std::string Weights_Data = Matrix_To_String(Matrix);
         std::string Result_Message = Build_Result_Weights_Message( Batch_ID, Layer_ID, Rows, Columns, Weights_Data );
 
-        sockaddr_in Target = sender_per_layer[Layer_ID];
-
-        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, Target);
+        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, last_sender_Address);
 
         if(!Ok)
             throw std::runtime_error("[ERROR]: Could not send weights to master.");
@@ -125,7 +121,6 @@ public:
 private:
     sockaddr_in master_Address;
     sockaddr_in last_sender_Address;
-    std::map<int, sockaddr_in> sender_per_layer;
 
 
     Weights_Message Parse_Weights_Message(std::string Weights_Message_Text)
@@ -270,7 +265,6 @@ private:
             }
 
         }
-
 
         std::vector<std::string> Ordered_Fragments;
 

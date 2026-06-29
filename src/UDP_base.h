@@ -96,7 +96,7 @@ protected:
         getsockname(Socket_Master, (sockaddr*)&Local, &Len);
         int Self_Port = ntohs(Local.sin_port);
 
-        //std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
+        std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
 
         // Buffer
         char Buffer[PACKET_LENGTH];
