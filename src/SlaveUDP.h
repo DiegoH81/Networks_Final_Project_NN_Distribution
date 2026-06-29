@@ -21,8 +21,8 @@ class SlaveUDP: public UDP_BASE
 {
 public:
 
-    SlaveUDP(std::string in_server_ip, int in_port) :
-        UDP_BASE(in_port)
+    SlaveUDP(std::string in_server_ip, int in_port, bool simulation) :
+        UDP_BASE(in_port, simulation)
     {
         priv_socket = Create_UDP_Socket();
         master_Address = Create_Address(in_server_ip, connection_port);
@@ -113,6 +113,7 @@ public:
         std::string Weights_Data = Matrix_To_String(Matrix);
         std::string Result_Message = Build_Result_Weights_Message( Batch_ID, Layer_ID, Rows, Columns, Weights_Data );
 
+        
         bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, last_sender_Address);
 
         if(!Ok)
@@ -257,11 +258,23 @@ private:
 
             }
 
-            if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size()){
+            if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size())
+            {
+                bool All_Present = true;
+                for(int k = 0; k < Expected_Fragments; k++)
+                {
+                    if(Received_Fragments.find(k) == Received_Fragments.end())
+                    {
+                        All_Present = false;
+                        break;
+                    }
+                }
 
-                std::cout << "[OK]: All fragments received.\n";
-                break;
-
+                if(All_Present)
+                {
+                    std::cout << "[OK]: All fragments received.\n";
+                    break;
+                }
             }
 
         }

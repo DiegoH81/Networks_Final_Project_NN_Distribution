@@ -95,5 +95,29 @@ inline std::vector<std::vector<double>> String_To_Matrix(std::string Text, int R
 
 }
 
+std::vector<std::vector<double>> Average_weights(const std::vector<std::vector<double>>& Server_Matrix,
+                                                 const std::vector<std::vector<double>>& Slaves_Matrix,
+                                                 int in_workers)
+{
+    if (Server_Matrix.empty() || Slaves_Matrix.empty())
+        return {};
+
+    int rows = Server_Matrix.size();
+    int cols = Server_Matrix[0].size();
+
+    std::vector<std::vector<double>> to_return(rows, std::vector<double>(cols, 0.0));
+
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < cols; j++)
+        {
+            to_return[i][j] = Slaves_Matrix[i][j] + Server_Matrix[i][j];
+            to_return[i][j] /= in_workers;
+        }
+    }
+    
+
+    return to_return;
+}
 
 #endif

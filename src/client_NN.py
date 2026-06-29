@@ -43,25 +43,6 @@ num_classes = 3
 
 
 
-####  Get Data as string from protocol
-data = np.array([[1,2,3,4,5,6,7,8,9,10,11,12,13,14]])
-
-# Assume first 4 columns are input features, last 3 are one-hot class labels
-X_np = data[:, : input_dim]
-y_onehot_np = data[:, -num_classes: ]
-
-
-X = torch.tensor(X_np)
-
-# argmax?
-y = torch.tensor(y_onehot_np)
-
-
-#print("y ",y)
-#print("y ",y.size())
-#print("X ",X.size())
-
-
 # ModelSetup
 model = MulticlassClassifier(input_dim = input_dim, num_classes = num_classes)
 
@@ -71,7 +52,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 
 # Setup
-SlaveCPP = udp_module.SlaveUDP("127.0.0.1", 45000)
+SlaveCPP = udp_module.SlaveUDP("127.0.0.1", 45000, True)
 SlaveCPP.register_slave()
 
 # Recibir dataset y cargarlo
@@ -83,21 +64,21 @@ X = torch.tensor(X_np)
 y = torch.tensor(y_np)
 
 
-pending_weights = {}
-layers = [model.fc1, model.fc2, model.fc3, model.fc4]
 
-# Loop de entrenamiento
+layers = [model.fc1, model.fc2, model.fc3, model.fc4]
+current_weights = 0
+
+# Training Loop
 while True:
     batch_id, layer_id, matrix = SlaveCPP.receive_weights()
 
-    if batch_id == -1:  # END
+    if batch_id == -1:
         break
 
     layers[layer_id - 1].weight.data.copy_(torch.tensor(matrix))
     
-    pending_weights[layer_id] = True
-    if len(pending_weights) == len(layers):
-        # Entrenar con sus datos
+    current_weights += 1
+    if current_weights == len(layers):
         model.train()
         optimizer.zero_grad()
         logits, log_vars = model(X)
@@ -111,4 +92,4 @@ while True:
         SlaveCPP.send_weights(batch_id, 3, model.fc3.weight.data.tolist())
         SlaveCPP.send_weights(batch_id, 4, model.fc4.weight.data.tolist())
         
-        pending_weights.clear()
+        current_weights = 0

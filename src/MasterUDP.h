@@ -45,8 +45,8 @@ struct Weights_Result
 class MasterUDP: public UDP_BASE
 {
 public:
-    MasterUDP(int in_port, int in_expected_slaves):
-        UDP_BASE(in_port), all_slaves(), expected_slaves(in_expected_slaves)
+    MasterUDP(int in_port, int in_expected_slaves, bool in_simulation):
+        UDP_BASE(in_port, in_simulation), all_slaves(), expected_slaves(in_expected_slaves)
     {
         priv_socket = Create_UDP_Socket();
 
@@ -152,9 +152,15 @@ public:
     void Send_Weight_All_Slaves(int Batch_ID, int Layer_ID,
                                 std::vector<std::vector<double>> Current_Weights)
     {
-        for(int i = 0; i < all_slaves.size(); i++)
-            Send_Weight_Slave(all_slaves[i], Batch_ID, Layer_ID, Current_Weights);
+        std::vector<std::thread> Thread_List;
 
+        for(int i = 0; i < all_slaves.size(); i++)
+            Thread_List.push_back(std::thread(&MasterUDP::Send_Weight_Slave, this,
+                                            all_slaves[i], Batch_ID, Layer_ID,
+                                            Current_Weights));
+
+        for(auto& t : Thread_List)
+            t.join();
     }
 
     std::vector<std::vector<double>> Receive_Weights_From_All_Slaves(int Batch_ID, int Layer_ID)
@@ -171,7 +177,7 @@ public:
         for(auto& t : Thread_List)
             t.join();
 
-        return Average_Weights(Results);
+        return Sum_Weights(Results);
     }
 
     bool Send_End_To_All_Slaves()
@@ -412,8 +418,21 @@ private:
 
             if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size())
             {
-                std::cout << "[OK]: All fragments received.\n";
-                break;
+                bool All_Present = true;
+                for(int k = 0; k < Expected_Fragments; k++)
+                {
+                    if(Received_Fragments.find(k) == Received_Fragments.end())
+                    {
+                        All_Present = false;
+                        break;
+                    }
+                }
+
+                if(All_Present)
+                {
+                    std::cout << "[OK]: All fragments received.\n";
+                    break;
+                }
             }
         }
 
@@ -480,11 +499,10 @@ private:
         return Result;
     }
 
-    std::vector<std::vector<double>> Average_Weights(std::vector<Weights_Result> Weight_Results)
+    std::vector<std::vector<double>> Sum_Weights(std::vector<Weights_Result> Weight_Results)
     {
-        std::vector<std::vector<double>> Average_Matrix;
+        std::vector<std::vector<double>> Sum_Matrix;
 
-        int Valid_Results = 0;
         int Rows = 0;
         int Columns = 0;
 
@@ -502,13 +520,13 @@ private:
         if(Rows == 0 || Columns == 0)
         {
             std::cout << "[ERROR]: No valid weight results to average.\n";
-            return Average_Matrix;
+            return Sum_Matrix;
         }
 
-        Average_Matrix.resize(Rows);
+        Sum_Matrix.resize(Rows);
 
         for(int i = 0; i < Rows; i++)
-            Average_Matrix[i].resize(Columns, 0.0);
+            Sum_Matrix[i].resize(Columns, 0.0);
         
 
         for(size_t Result_Index = 0; Result_Index < Weight_Results.size(); Result_Index++)
@@ -534,28 +552,11 @@ private:
             for(int i = 0; i < Rows; i++)
             {
                 for(int j = 0; j < Columns; j++)
-                    Average_Matrix[i][j] += Current_Matrix[i][j];
-
+                    Sum_Matrix[i][j] += Current_Matrix[i][j];
             }
-
-            Valid_Results++;
         }
 
-        if(Valid_Results == 0){
-
-            std::cout << "[ERROR]: No valid matrices were averaged.\n";
-            Average_Matrix.clear();
-            return Average_Matrix;
-
-        }
-
-        for(int i = 0; i < Rows; i++)
-        {
-            for(int j = 0; j < Columns; j++)         
-                Average_Matrix[i][j] = Average_Matrix[i][j] / Valid_Results;
-        }
-
-        return Average_Matrix;
+        return Sum_Matrix;
     }
 
     void Send_Weight_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
