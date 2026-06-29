@@ -18,9 +18,6 @@ import torch.distributions as dist
 
 import udp_module
 
-X=None
-y=None
-
 class MulticlassClassifier(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, hidden1: int = 128, hidden2: int = 64):
         super(MulticlassClassifier, self).__init__()
@@ -56,23 +53,22 @@ batch_size = 100
 current_dir = os.path.dirname(os.path.abspath(__file__))
 csv_path = os.path.join(current_dir, "..", "data", "Dataset of Diabetes.csv")
 
-print("Path: ", csv_path)
 
-df = pd.read_csv(csv_path,header=None, skiprows=1)
+# CPP
+number_slaves = 3
+
+Master_CPP = udp_module.MasterUDP(45000, number_slaves, False)
+Master_CPP.register_slaves()
+csv_block = Master_CPP.prepare_and_send_dataset(csv_path)
+
+df = pd.read_csv(pd.io.common.StringIO(csv_block), header = None)
 
 
-# Assume first 4 columns are input features, last 3 are one-hot class labels
-X_np =        df.iloc[:, :input_dim].values.astype(np.float32)
-y_onehot_np = df.iloc[:, -num_classes:].values.astype(np.float32)
-
-
-
+X_np = df.iloc[:, :input_dim].values.astype(np.float32)
+y_np = df.iloc[:, -num_classes:].values.astype(np.float32)
 
 X = torch.tensor(X_np)
-y = torch.tensor(y_onehot_np)
-print("y ",y)
-print("y ",y.size())
-print("X ",X.size())
+y = torch.tensor(y_np)
 
 # Create dataset and split into training/testing
 dataset = TensorDataset(X, y)
@@ -87,27 +83,17 @@ test_loader = DataLoader(test_dataset, batch_size  = batch_size, shuffle = False
 # Model setup
 model = MulticlassClassifier(input_dim = input_dim, num_classes = num_classes)
 
-data_init = (model.fc1.weight.data[0:6])
-
+data_init = model.fc1.weight.data[0:6].clone()
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 
 # Training loop
-num_epochs = 360
 train_tracker, test_tracker, accuracy_tracker = [], [], []
-
-
 
 model.train()
 epoch_loss = 0
 counter = 0
-
-# CPP
-Master_CPP = udp_module.MasterUDP(45000, 3)
-Master_CPP.register_slaves()
-csv_block = Master_CPP.prepare_and_send_dataset(csv_path)
-df = pd.read_csv(pd.io.common.StringIO(csv_block), header = None)
 
 for batch_x, batch_y in train_loader:
     optimizer.zero_grad()
@@ -118,23 +104,20 @@ for batch_x, batch_y in train_loader:
         Master_CPP.send_weights_to_slaves(counter, 3, model.fc3.weight.data.tolist())
         Master_CPP.send_weights_to_slaves(counter, 4, model.fc4.weight.data.tolist())
 
-        avg1 = Master_CPP.receive_weights_from_slaves(counter, 1)
-        avg2 = Master_CPP.receive_weights_from_slaves(counter, 2)
-        avg3 = Master_CPP.receive_weights_from_slaves(counter, 3)
-        avg4 = Master_CPP.receive_weights_from_slaves(counter, 4)
-
-        '''
+        sum1 = Master_CPP.receive_weights_from_slaves(counter, 1)
+        sum2 = Master_CPP.receive_weights_from_slaves(counter, 2)
+        sum3 = Master_CPP.receive_weights_from_slaves(counter, 3)
+        sum4 = Master_CPP.receive_weights_from_slaves(counter, 4)
+        
+        avg1 = udp_module.average_weights(model.fc1.weight.data.tolist(), sum1, number_slaves + 1)
+        avg2 = udp_module.average_weights(model.fc2.weight.data.tolist(), sum2, number_slaves + 1)
+        avg3 = udp_module.average_weights(model.fc3.weight.data.tolist(), sum3, number_slaves + 1)
+        avg4 = udp_module.average_weights(model.fc4.weight.data.tolist(), sum4, number_slaves + 1)
+        
         model.fc1.weight.data.copy_(torch.tensor(avg1))
         model.fc2.weight.data.copy_(torch.tensor(avg2))
         model.fc3.weight.data.copy_(torch.tensor(avg3))
         model.fc4.weight.data.copy_(torch.tensor(avg4))
-        '''
-        
-        n = 4  # total nodos
-        model.fc1.weight.data.copy_((model.fc1.weight.data + torch.tensor(avg1) * 3) / n)
-        model.fc2.weight.data.copy_((model.fc2.weight.data + torch.tensor(avg2) * 3) / n)
-        model.fc3.weight.data.copy_((model.fc3.weight.data + torch.tensor(avg3) * 3) / n)
-        model.fc4.weight.data.copy_((model.fc4.weight.data + torch.tensor(avg4) * 3) / n)
         
 
     logits, log_vars = model(batch_x)
@@ -148,11 +131,11 @@ for batch_x, batch_y in train_loader:
 Master_CPP.send_end()
 
 
-print("\n--- Pesos iniciales de la capa fc1 ---")
-print(data_init) # Muestra las primeras 2 filas
+print("\n--- Initial weights FC1 ---")
+print(data_init)
 print("-" * 30)
 
-print("\n--- Pesos finales de la capa fc1 ---")
+print("\n--- Final weights FC1 ---")
 print(model.fc1.weight.data[0:6])
 print("-" * 30)
 
@@ -192,9 +175,6 @@ accuracy_tracker.append(num_correct/total)
 print(f'Accuracy : {num_correct/total}')
 
 
-
-
-
 # Plot training loss over epochs
 plt.figure(figsize=(8, 4))
 plt.plot(train_tracker, marker='o')
@@ -204,8 +184,6 @@ plt.ylabel("Loss")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
-
-
 
 
 # Mat plot lib

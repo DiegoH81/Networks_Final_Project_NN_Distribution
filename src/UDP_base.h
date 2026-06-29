@@ -14,28 +14,15 @@
 class UDP_BASE
 {
 public:
-    UDP_BASE(int in_port):
-        priv_socket(0), connection_port(in_port)
+    UDP_BASE(int in_port, bool in_simulate):
+        priv_socket(0), connection_port(in_port),
+        simulate_errors(in_simulate), error_counter(0)
     {}
-
-    int Create_UDP_Socket()
-    {
-        int to_return_skt = socket(AF_INET, SOCK_DGRAM, 0);
-
-        if(to_return_skt < 0){
-
-            std::cout << "[ERROR]: Could not create UDP Socket.\n";
-            return -1; 
-
-        }
-
-        return to_return_skt;
-
-    }
 protected:
-    int priv_socket, connection_port;
-
-    void check_timeout(int socket_master, int self_port, std::shared_ptr<bool> timeout_elapsed, std::shared_ptr<bool> message_done)
+    int priv_socket, connection_port, error_counter;
+    bool simulate_errors;
+    
+    void check_timeout(int socket_master, std::shared_ptr<bool> timeout_elapsed, std::shared_ptr<bool> message_done)
     {
         int num_partitions = 5;
         int step = TIMEOUT_MS / num_partitions;
@@ -53,18 +40,30 @@ protected:
         if (*message_done)
             return;
         else
-        {
-            auto self_address = Create_Address("127.0.0.1", self_port);
-
-            std::string Dummy(PACKET_LENGTH, '0');
-            sendto(socket_master, Dummy.c_str(), PACKET_LENGTH, 0, (sockaddr*)&self_address, sizeof(self_address));
-
             *timeout_elapsed = true;
-        }
     }
 
     bool Send_UDP_Packet(int Socket_Master, std::string Packet, sockaddr_in Destination_Address)
     {
+        if (simulate_errors)
+        {
+            error_counter++;
+
+            if (error_counter % 10 == 0)
+            {
+                std::cout << "[SIM]: Sending corrupted packet.\n";
+                Packet[HEADER_LENGTH + 20] = 'X';
+                std::cout << "PKT: " << Packet << "\n\n\n";
+            }
+            if (error_counter % 50 == 0)
+            {
+                std::cout << "[SIM]: Dropping packet (simulated loss).\n\n\n";
+                return true;
+            }
+        }
+
+
+
         if(Packet.length() != PACKET_LENGTH) {
 
             std::cout << "[ERROR]: Cannot send packet with invalid length.\n";
@@ -90,20 +89,25 @@ protected:
         auto timeout_elapsed = std::make_shared<bool>(false);
         auto message_done = std::make_shared<bool>(false);
 
-        // PORT
-        sockaddr_in Local;
-        socklen_t Len = sizeof(Local);
-        getsockname(Socket_Master, (sockaddr*)&Local, &Len);
-        int Self_Port = ntohs(Local.sin_port);
-
-        //std::thread(&UDP_BASE::check_timeout, this, Socket_Master, Self_Port, timeout_elapsed, message_done).detach();
+        // PORT        
+        std::thread(&UDP_BASE::check_timeout, this, Socket_Master, timeout_elapsed, message_done).detach();
 
         // Buffer
         char Buffer[PACKET_LENGTH];
-
         socklen_t Sender_Length = sizeof(Sender_Address);
 
-        int Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, 0, (sockaddr*)&Sender_Address, &Sender_Length);
+        int Bytes_Received = 0;
+        while(!(*timeout_elapsed))
+        {
+            Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, MSG_DONTWAIT,
+                                      (sockaddr*)&Sender_Address, &Sender_Length);
+
+            if(Bytes_Received > 0)
+                break;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
         
         if(Bytes_Received <= 0)
             return "";
@@ -278,8 +282,7 @@ protected:
 
         std::string Header = Build_Header(Hash_CRC32, Control_Frag, Seq_Num_Frag, Seq_Num_Msg);
 
-        Packet_Content += Header;
-        Packet_Content += Payload;
+        Packet_Content = Header + Payload;
 
         if(Packet_Content.length() != PACKET_LENGTH){
 

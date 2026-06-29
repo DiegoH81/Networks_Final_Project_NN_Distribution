@@ -105,7 +105,20 @@ inline sockaddr_in Create_Address(std::string IP_Address, int Port)
     Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
 
     return Address;
+}
 
+int Create_UDP_Socket()
+{
+    int to_return_skt = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if(to_return_skt < 0){
+
+        std::cout << "[ERROR]: Could not create UDP Socket.\n";
+        return -1; 
+
+    }
+
+    return to_return_skt;
 }
 
 #endif
