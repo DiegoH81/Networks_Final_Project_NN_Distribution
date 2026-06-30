@@ -130,7 +130,6 @@ for batch_x, batch_y in train_loader:
 
 Master_CPP.send_end()
 
-
 print("\n--- Initial weights FC1 ---")
 print(data_init)
 print("-" * 30)

@@ -118,6 +118,18 @@ int Create_UDP_Socket()
 
     }
 
+    /*
+    struct timeval Timeout;
+    Timeout.tv_sec = TIMEOUT_MS / 1000;
+    Timeout.tv_usec = (TIMEOUT_MS % 1000) * 1000;
+    
+    if(setsockopt(to_return_skt, SOL_SOCKET, SO_RCVTIMEO, (const char*)&Timeout, sizeof(Timeout)) < 0)
+    {
+        std::cout << "[ERROR]: Could not set socket timeout.\n";
+    }
+    */
+
+
     return to_return_skt;
 }
 
