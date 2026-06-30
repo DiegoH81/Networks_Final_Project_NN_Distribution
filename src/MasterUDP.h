@@ -20,6 +20,7 @@ struct Slave_Info
 {
     int Slave_ID;
     sockaddr_in Slave_Address;
+    int Socket;
 };
 
 struct Dataset_Distribution
@@ -44,8 +45,8 @@ struct Weights_Result
 class MasterUDP: public UDP_BASE
 {
 public:
-    MasterUDP(int in_port, int in_expected_slaves):
-        UDP_BASE(in_port), all_slaves(), expected_slaves(in_expected_slaves)
+    MasterUDP(int in_port, int in_expected_slaves, bool in_simulation):
+        UDP_BASE(in_port, in_simulation), all_slaves(), expected_slaves(in_expected_slaves)
     {
         priv_socket = Create_UDP_Socket();
 
@@ -62,7 +63,7 @@ public:
     {
         std::cout << "[INFO]: Waiting for: "  << expected_slaves << " slaves...\n";
 
-        while((int)all_slaves.size() < expected_slaves)
+        while(all_slaves.size() < expected_slaves)
         {
             sockaddr_in Sender_Address;
 
@@ -125,6 +126,7 @@ public:
 
             New_Slave.Slave_ID = all_slaves.size() + 1;
             New_Slave.Slave_Address = Sender_Address;
+            New_Slave.Socket = Create_UDP_Socket();
 
             all_slaves.push_back(New_Slave);
 
@@ -150,11 +152,15 @@ public:
     void Send_Weight_All_Slaves(int Batch_ID, int Layer_ID,
                                 std::vector<std::vector<double>> Current_Weights)
     {
-        layer_sockets[Layer_ID] = std::vector<int>(all_slaves.size(), -1);
+        std::vector<std::thread> Thread_List;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
-            Send_Weight_Slave(all_slaves[i], Batch_ID, Layer_ID, Current_Weights, layer_sockets[Layer_ID][i]);
+        for(int i = 0; i < all_slaves.size(); i++)
+            Thread_List.push_back(std::thread(&MasterUDP::Send_Weight_Slave, this,
+                                            all_slaves[i], Batch_ID, Layer_ID,
+                                            Current_Weights));
 
+        for(auto& t : Thread_List)
+            t.join();
     }
 
     std::vector<std::vector<double>> Receive_Weights_From_All_Slaves(int Batch_ID, int Layer_ID)
@@ -166,33 +172,31 @@ public:
         for(int i = 0; i < all_slaves.size(); i++)
             Thread_List.push_back(std::thread(&MasterUDP::Receive_Weights_From_Slave, this,
                                               all_slaves[i], Batch_ID, Layer_ID,
-                                              std::ref(Results[i]), std::ref(Flags[i]),
-                                              layer_sockets[Layer_ID][i]));
+                                              std::ref(Results[i]), std::ref(Flags[i])));
 
         for(auto& t : Thread_List)
             t.join();
 
-        return Average_Weights(Results);
+        return Sum_Weights(Results);
     }
 
     bool Send_End_To_All_Slaves()
     {
-        std::vector<int> Results(NUM_SLAVES, 0);
+        std::vector<int> Results(expected_slaves, 0);
         std::vector<std::thread> Thread_List;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List.push_back( std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, all_slaves[i], 'E', 9000 + i, "END", std::ref(Results[i])) );
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List[i].join();
 
         bool All_Ok = true;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             if(!Results[i])
                 All_Ok = false;
-
         }
 
         return All_Ok;
@@ -201,7 +205,6 @@ public:
 private:
     int expected_slaves;
     std::vector<Slave_Info> all_slaves;
-    std::map<int, std::vector<int>> layer_sockets; 
 
     bool Send_Message_To_Slave(int Socket_Master, char Message_Type, int Seq_Num_Msg, std::string Full_Data, sockaddr_in Slave_Address)
     {
@@ -280,7 +283,7 @@ private:
         Distribution.Master_Rows = 0;
         Distribution.Dataset_Columns = 0;
 
-        int Total_Workers = NUM_SLAVES + 1;
+        int Total_Workers = expected_slaves + 1;
 
         std::vector<std::vector<std::string>> Dataset_Partitions = Read_CSV_Partitions(Dataset_Path, Total_Workers, Distribution.Dataset_Columns);
 
@@ -298,7 +301,7 @@ private:
                   << "Columns -> " << Distribution.Dataset_Columns << "\n"
                   << "Size in bytes -> " << Distribution.Master_CSV_Block.length() << ".\n";
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             std::string CSV_Block = Join_CSV_Rows(Dataset_Partitions[i + 1]);
 
@@ -320,23 +323,23 @@ private:
 
     bool Send_Dataset_To_All_Slaves(std::vector<Slave_Info> Slave_List, std::vector<std::string> Data_Blocks)
     {
-        std::vector<int> Results(NUM_SLAVES, 0);
+        std::vector<int> Results(expected_slaves, 0);
         std::vector<std::thread> Thread_List;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             Thread_List.push_back(
                 std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, Slave_List[i], 'B', i + 1, Data_Blocks[i], std::ref(Results[i]))
             );
         }
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List[i].join();
 
 
         bool All_Ok = true;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             std::cout << "Slave " << i + 1 << " dataset result: "
                       << Results[i] << "\n"; 
@@ -414,8 +417,21 @@ private:
 
             if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size())
             {
-                std::cout << "[OK]: All fragments received.\n";
-                break;
+                bool All_Present = true;
+                for(int k = 0; k < Expected_Fragments; k++)
+                {
+                    if(Received_Fragments.find(k) == Received_Fragments.end())
+                    {
+                        All_Present = false;
+                        break;
+                    }
+                }
+
+                if(All_Present)
+                {
+                    std::cout << "[OK]: All fragments received.\n";
+                    break;
+                }
             }
         }
 
@@ -482,11 +498,10 @@ private:
         return Result;
     }
 
-    std::vector<std::vector<double>> Average_Weights(std::vector<Weights_Result> Weight_Results)
+    std::vector<std::vector<double>> Sum_Weights(std::vector<Weights_Result> Weight_Results)
     {
-        std::vector<std::vector<double>> Average_Matrix;
+        std::vector<std::vector<double>> Sum_Matrix;
 
-        int Valid_Results = 0;
         int Rows = 0;
         int Columns = 0;
 
@@ -504,13 +519,13 @@ private:
         if(Rows == 0 || Columns == 0)
         {
             std::cout << "[ERROR]: No valid weight results to average.\n";
-            return Average_Matrix;
+            return Sum_Matrix;
         }
 
-        Average_Matrix.resize(Rows);
+        Sum_Matrix.resize(Rows);
 
         for(int i = 0; i < Rows; i++)
-            Average_Matrix[i].resize(Columns, 0.0);
+            Sum_Matrix[i].resize(Columns, 0.0);
         
 
         for(size_t Result_Index = 0; Result_Index < Weight_Results.size(); Result_Index++)
@@ -536,38 +551,16 @@ private:
             for(int i = 0; i < Rows; i++)
             {
                 for(int j = 0; j < Columns; j++)
-                    Average_Matrix[i][j] += Current_Matrix[i][j];
-
+                    Sum_Matrix[i][j] += Current_Matrix[i][j];
             }
-
-            Valid_Results++;
         }
 
-        if(Valid_Results == 0){
-
-            std::cout << "[ERROR]: No valid matrices were averaged.\n";
-            Average_Matrix.clear();
-            return Average_Matrix;
-
-        }
-
-        for(int i = 0; i < Rows; i++)
-        {
-            for(int j = 0; j < Columns; j++)         
-                Average_Matrix[i][j] = Average_Matrix[i][j] / Valid_Results;
-        }
-
-        return Average_Matrix;
+        return Sum_Matrix;
     }
 
     void Send_Weight_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
-                           std::vector<std::vector<double>> Current_Weights, int &out_socket)
+                           std::vector<std::vector<double>> Current_Weights)
     {
-        out_socket = Create_UDP_Socket();
-
-        if(out_socket < 0)
-            return;
-
         int Rows = Current_Weights.size();
         int Columns = 0;
 
@@ -575,47 +568,32 @@ private:
             Columns = Current_Weights[0].size();
 
         std::string Weights_Data = Matrix_To_String(Current_Weights);
-
         std::string Weights_Message = Build_Weights_Message(Batch_ID, Layer_ID, Rows, Columns, Weights_Data); 
 
-        bool Send_Ok = Send_Message_To_Slave(out_socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
+        bool Send_Ok = Send_Message_To_Slave(Current_Slave.Socket, 'P', Batch_ID, Weights_Message, Current_Slave.Slave_Address);
 
         if(!Send_Ok)
-        {
             std::cout << "[ERROR]: Could not send P to slave " << Current_Slave.Slave_ID << ".\n";
-            close(out_socket);
-            return;
-        }
-
-        //close(Thread_Socket);
     }
 
     void Receive_Weights_From_Slave(Slave_Info Current_Slave, int Batch_ID, int Layer_ID,
-                                    Weights_Result& Slave_Result, int& Result_Flag,
-                                    int in_socket)
+                                    Weights_Result& Slave_Result, int& Result_Flag)
     {
         Result_Flag = 0;
         Slave_Result.Is_Valid = false;
 
-        std::string Result_Message = Receive_Message_With_ACK(in_socket);
+        std::string Result_Message = Receive_Message_With_ACK(Current_Slave.Socket);
 
         if(Result_Message.empty())
-        {
-            close(in_socket);
             return;
-        }
 
         Weights_Result Parsed = Parse_Result_Weights_Message(Result_Message);
 
         if(!Parsed.Is_Valid || Parsed.Batch_ID != Batch_ID || Parsed.Layer_ID != Layer_ID)
-        {
-            close(in_socket);
             return;
-        }
 
         Slave_Result = Parsed;
         Result_Flag = 1;
-        close(in_socket);
     }
 
     bool Bind_UDP_Socket(int Socket_Master, int Port)

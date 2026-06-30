@@ -21,8 +21,8 @@ class SlaveUDP: public UDP_BASE
 {
 public:
 
-    SlaveUDP(std::string in_server_ip, int in_port) :
-        UDP_BASE(in_port)
+    SlaveUDP(std::string in_server_ip, int in_port, bool simulation) :
+        UDP_BASE(in_port, simulation)
     {
         priv_socket = Create_UDP_Socket();
         master_Address = Create_Address(in_server_ip, connection_port);
@@ -100,8 +100,6 @@ public:
         if(!Parsed.Is_Valid)
             throw std::runtime_error("[ERROR]: Invalid P message received.");
 
-        sender_per_layer[Parsed.Layer_ID] = last_sender_Address;
-
         std::vector<std::vector<double>> Matrix = String_To_Matrix( Parsed.Weights_Data, Parsed.Rows, Parsed.Columns );
 
         return {Parsed.Batch_ID, Parsed.Layer_ID, Matrix};
@@ -115,9 +113,8 @@ public:
         std::string Weights_Data = Matrix_To_String(Matrix);
         std::string Result_Message = Build_Result_Weights_Message( Batch_ID, Layer_ID, Rows, Columns, Weights_Data );
 
-        sockaddr_in Target = sender_per_layer[Layer_ID];
-
-        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, Target);
+        
+        bool Ok = Send_Message_To_Master(priv_socket, 'R', Batch_ID, Result_Message, last_sender_Address);
 
         if(!Ok)
             throw std::runtime_error("[ERROR]: Could not send weights to master.");
@@ -125,7 +122,6 @@ public:
 private:
     sockaddr_in master_Address;
     sockaddr_in last_sender_Address;
-    std::map<int, sockaddr_in> sender_per_layer;
 
 
     Weights_Message Parse_Weights_Message(std::string Weights_Message_Text)
@@ -262,15 +258,26 @@ private:
 
             }
 
-            if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size()){
+            if(Expected_Fragments != -1 && Expected_Fragments == (int)Received_Fragments.size())
+            {
+                bool All_Present = true;
+                for(int k = 0; k < Expected_Fragments; k++)
+                {
+                    if(Received_Fragments.find(k) == Received_Fragments.end())
+                    {
+                        All_Present = false;
+                        break;
+                    }
+                }
 
-                std::cout << "[OK]: All fragments received.\n";
-                break;
-
+                if(All_Present)
+                {
+                    std::cout << "[OK]: All fragments received.\n";
+                    break;
+                }
             }
 
         }
-
 
         std::vector<std::string> Ordered_Fragments;
 

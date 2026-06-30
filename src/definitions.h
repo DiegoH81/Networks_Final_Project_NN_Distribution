@@ -20,10 +20,9 @@
 #define ROWS_LENGTH 6
 #define COLUMNS_LENGTH 4
 
-#define TIMEOUT_MS 500
-#define MAX_RETRIES 5
+#define TIMEOUT_MS 2000
+#define MAX_RETRIES 10
 
-#define NUM_SLAVES 3
 #define NUM_LAYERS 4
 
 //==================================================

@@ -105,7 +105,30 @@ inline sockaddr_in Create_Address(std::string IP_Address, int Port)
     Address.sin_addr.s_addr = inet_addr(IP_Address.c_str());
 
     return Address;
+}
 
+int Create_UDP_Socket()
+{
+    int to_return_skt = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if(to_return_skt < 0){
+
+        std::cout << "[ERROR]: Could not create UDP Socket.\n";
+        return -1; 
+
+    }
+
+    /*
+    struct timeval Timeout;
+    Timeout.tv_sec = TIMEOUT_MS / 1000;
+    Timeout.tv_usec = (TIMEOUT_MS % 1000) * 1000;
+    
+    if(setsockopt(to_return_skt, SOL_SOCKET, SO_RCVTIMEO, (const char*)&Timeout, sizeof(Timeout)) < 0)
+    {
+        std::cout << "[ERROR]: Could not set socket timeout.\n";
+    }
+    */
+    return to_return_skt;
 }
 
 #endif
