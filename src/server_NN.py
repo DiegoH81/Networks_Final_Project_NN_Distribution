@@ -55,7 +55,7 @@ csv_path = os.path.join(current_dir, "..", "data", "Dataset of Diabetes.csv")
 
 
 # CPP
-number_slaves = 3
+number_slaves = 2
 
 Master_CPP = udp_module.MasterUDP(45000, number_slaves, False)
 Master_CPP.register_slaves()
@@ -129,7 +129,6 @@ for batch_x, batch_y in train_loader:
     counter += 1
 
 Master_CPP.send_end()
-
 
 print("\n--- Initial weights FC1 ---")
 print(data_init)

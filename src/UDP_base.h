@@ -24,7 +24,7 @@ protected:
     
     void check_timeout(int socket_master, std::shared_ptr<bool> timeout_elapsed, std::shared_ptr<bool> message_done)
     {
-        int num_partitions = 5;
+        int num_partitions = 10;
         int step = TIMEOUT_MS / num_partitions;
 
         int counter = 0;
@@ -49,19 +49,20 @@ protected:
         {
             error_counter++;
 
-            if (error_counter % 10 == 0)
+            if (error_counter % 100 == 0)
             {
                 std::cout << "[SIM]: Sending corrupted packet.\n";
                 Packet[HEADER_LENGTH + 20] = 'X';
                 std::cout << "PKT: " << Packet << "\n\n\n";
             }
-            if (error_counter % 50 == 0)
+            
+            if (error_counter % 400 == 0)
             {
                 std::cout << "[SIM]: Dropping packet (simulated loss).\n\n\n";
                 return true;
             }
+            
         }
-
 
 
         if(Packet.length() != PACKET_LENGTH) {
@@ -97,17 +98,17 @@ protected:
         socklen_t Sender_Length = sizeof(Sender_Address);
 
         int Bytes_Received = 0;
-        while(!(*timeout_elapsed))
+        
+        while (!(*timeout_elapsed))
         {
-            Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, MSG_DONTWAIT,
-                                      (sockaddr*)&Sender_Address, &Sender_Length);
-
+            Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, MSG_DONTWAIT, (sockaddr*)&Sender_Address, &Sender_Length);
+ 
             if(Bytes_Received > 0)
                 break;
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-
+        
         
         if(Bytes_Received <= 0)
             return "";
@@ -142,56 +143,60 @@ protected:
 
             }
 
-            sockaddr_in Sender_Address;
-            std::string Response_Packet = Receive_UDP_Packet(in_socket, Sender_Address);
+            bool Got_Match = false;
 
-            if(Response_Packet == ""){
+            while(!Got_Match)
+            {
+                sockaddr_in Sender_Address;
+                std::string Response_Packet = Receive_UDP_Packet(in_socket, Sender_Address);
 
-                std::cout << "[TIMEOUT]: No ACK/NACK received. Retrying...\n";
-                Retry_Count++;
-                continue;
+                if(Response_Packet == ""){
 
+                    std::cout << "[TIMEOUT]: No ACK/NACK received. Retrying...\n";
+                    Retry_Count++;
+                    break;
+
+                }
+
+                if(!Verify_Packet_Hash(Response_Packet)){
+
+                    std::cout << "[ERROR]: ACK/NACK hash invalid. Retrying...\n";
+                    //Retry_Count++;
+                    continue;
+
+                }
+
+                std::string Response_Seq_Frag = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH, SEQ_NUM_FRAG_LENGTH);
+                std::string Response_Seq_Msg = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH + SEQ_NUM_FRAG_LENGTH, SEQ_NUM_MSG_LENGTH);
+                std::string Response_Payload = Response_Packet.substr(HEADER_LENGTH, PAYLOAD_LENGTH);
+
+                char Response_Type = Response_Payload[0];
+
+                if(Response_Seq_Frag != Seq_Frag || Response_Seq_Msg != Seq_Msg){
+
+                    std::cout << "[WARNING]: ACK/NACK does not match current packet. Ignoring...\n";
+                    //Retry_Count++;
+                    continue;
+
+                } 
+
+                if(Response_Type == 'A'){
+
+                    std::cout << "[OK]: ACK received for fragment " << Seq_Frag << ".\n";
+                    return true;
+
+                }
+
+                if(Response_Type == 'N'){
+
+                    std::cout << "[NACK]: Fragment " << Seq_Frag << " rejected. Retrying...\n";
+                    Retry_Count++;
+                    Got_Match = true;
+                }
+
+                //std::cout << "[ERROR]: Unknown ACK/NACK type. Retrying...\n";
+                //Retry_Count++;
             }
-
-            if(!Verify_Packet_Hash(Response_Packet)){
-
-                std::cout << "[ERROR]: ACK/NACK hash invalid. Retrying...\n";
-                Retry_Count++;
-                continue;
-
-            }
-
-            std::string Response_Seq_Frag = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH, SEQ_NUM_FRAG_LENGTH);
-            std::string Response_Seq_Msg = Response_Packet.substr(HASH_LENGTH + CTRL_FRAG_LENGTH + SEQ_NUM_FRAG_LENGTH, SEQ_NUM_MSG_LENGTH);
-            std::string Response_Payload = Response_Packet.substr(HEADER_LENGTH, PAYLOAD_LENGTH);
-
-            char Response_Type = Response_Payload[0];
-
-            if(Response_Seq_Frag != Seq_Frag || Response_Seq_Msg != Seq_Msg){
-
-                std::cout << "[WARNING]: ACK/NACK does not match current packet. Retrying...\n";
-                Retry_Count++;
-                continue;
-
-            } 
-
-            if(Response_Type == 'A'){
-
-                std::cout << "[OK]: ACK received for fragment " << Seq_Frag << ".\n";
-                return true;
-
-            }
-
-            if(Response_Type == 'N'){
-
-                std::cout << "[NACK]: Fragment " << Seq_Frag << " rejected. Retrying...\n";
-                Retry_Count++;
-                continue;
-
-            }
-
-            std::cout << "[ERROR]: Unknown ACK/NACK type. Retrying...\n";
-            Retry_Count++;
         }
 
         std::cout << "[ERROR]: Max retries reached for fragment " << Seq_Frag << ".\n";

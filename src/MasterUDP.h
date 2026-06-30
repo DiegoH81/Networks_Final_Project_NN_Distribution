@@ -182,22 +182,21 @@ public:
 
     bool Send_End_To_All_Slaves()
     {
-        std::vector<int> Results(NUM_SLAVES, 0);
+        std::vector<int> Results(expected_slaves, 0);
         std::vector<std::thread> Thread_List;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List.push_back( std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, all_slaves[i], 'E', 9000 + i, "END", std::ref(Results[i])) );
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List[i].join();
 
         bool All_Ok = true;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             if(!Results[i])
                 All_Ok = false;
-
         }
 
         return All_Ok;
@@ -284,7 +283,7 @@ private:
         Distribution.Master_Rows = 0;
         Distribution.Dataset_Columns = 0;
 
-        int Total_Workers = NUM_SLAVES + 1;
+        int Total_Workers = expected_slaves + 1;
 
         std::vector<std::vector<std::string>> Dataset_Partitions = Read_CSV_Partitions(Dataset_Path, Total_Workers, Distribution.Dataset_Columns);
 
@@ -302,7 +301,7 @@ private:
                   << "Columns -> " << Distribution.Dataset_Columns << "\n"
                   << "Size in bytes -> " << Distribution.Master_CSV_Block.length() << ".\n";
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             std::string CSV_Block = Join_CSV_Rows(Dataset_Partitions[i + 1]);
 
@@ -324,23 +323,23 @@ private:
 
     bool Send_Dataset_To_All_Slaves(std::vector<Slave_Info> Slave_List, std::vector<std::string> Data_Blocks)
     {
-        std::vector<int> Results(NUM_SLAVES, 0);
+        std::vector<int> Results(expected_slaves, 0);
         std::vector<std::thread> Thread_List;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             Thread_List.push_back(
                 std::thread(&MasterUDP::Send_Message_To_Slave_Thread, this, Slave_List[i], 'B', i + 1, Data_Blocks[i], std::ref(Results[i]))
             );
         }
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
             Thread_List[i].join();
 
 
         bool All_Ok = true;
 
-        for(int i = 0; i < NUM_SLAVES; i++)
+        for(int i = 0; i < expected_slaves; i++)
         {
             std::cout << "Slave " << i + 1 << " dataset result: "
                       << Results[i] << "\n"; 

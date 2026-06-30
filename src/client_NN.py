@@ -55,7 +55,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 SlaveCPP = udp_module.SlaveUDP("127.0.0.1", 45000, True)
 SlaveCPP.register_slave()
 
-# Recibir dataset y cargarlo
+# Dataset
 csv_data = SlaveCPP.receive_dataset()
 df = pd.read_csv(pd.io.common.StringIO(csv_data), header=None)
 X_np = df.iloc[:, :input_dim].values.astype(np.float32)
