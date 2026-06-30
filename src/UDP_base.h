@@ -24,7 +24,7 @@ protected:
     
     void check_timeout(int socket_master, std::shared_ptr<bool> timeout_elapsed, std::shared_ptr<bool> message_done)
     {
-        int num_partitions = 5;
+        int num_partitions = 10;
         int step = TIMEOUT_MS / num_partitions;
 
         int counter = 0;
@@ -91,7 +91,7 @@ protected:
         auto message_done = std::make_shared<bool>(false);
 
         // PORT        
-        //std::thread(&UDP_BASE::check_timeout, this, Socket_Master, timeout_elapsed, message_done).detach();
+        std::thread(&UDP_BASE::check_timeout, this, Socket_Master, timeout_elapsed, message_done).detach();
 
         // Buffer
         char Buffer[PACKET_LENGTH];
@@ -99,7 +99,16 @@ protected:
 
         int Bytes_Received = 0;
         
-        Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, 0, (sockaddr*)&Sender_Address, &Sender_Length);
+        while (!(*timeout_elapsed))
+        {
+            Bytes_Received = recvfrom(Socket_Master, Buffer, PACKET_LENGTH, MSG_DONTWAIT, (sockaddr*)&Sender_Address, &Sender_Length);
+ 
+            if(Bytes_Received > 0)
+                break;
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        
         
         if(Bytes_Received <= 0)
             return "";
@@ -133,7 +142,6 @@ protected:
                 continue; 
 
             }
-
 
             bool Got_Match = false;
 
